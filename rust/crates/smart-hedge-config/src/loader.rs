@@ -104,6 +104,7 @@ pub fn load_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::strike_spec::StrikeSpec;
 
     #[test]
     fn loads_defaults_with_no_override_file() {
@@ -152,12 +153,57 @@ mod tests {
         let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
         assert_eq!(loaded.config.contracts.len(), 2); // SPY (default) + QQQ (new)
         let qqq = &loaded.config.contracts["QQQ"];
-        assert_eq!(qqq.strike, 50.0);
+        assert_eq!(qqq.strike, StrikeSpec::Fixed(50.0));
         assert_eq!(qqq.option_type, "call");
         assert_eq!(qqq.exercise_style, "american");
         assert_eq!(qqq.multiplier, 100.0);
         assert_eq!(qqq.current_shares, 0.0);
         assert_eq!(qqq.contracts, 0);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Regression test for the SDH-LLR-025 correction: a contract symbol
+    /// that specifies `expiry` but not `days_to_expiry` must still load
+    /// successfully — `days_to_expiry` defaults to `30.0` at the config
+    /// layer, and the dynamic override from `expiry` happens later, in
+    /// `smart-hedge-engine`.
+    #[test]
+    fn a_contract_symbol_with_only_an_expiry_date_needs_no_days_to_expiry() {
+        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-expiryonly-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            r#"{"contracts": {"QQQ": {"strike": 50.0, "expiry": "2026-12-19", "implied_volatility": 0.30}}}"#,
+        )
+        .unwrap();
+
+        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
+        let qqq = &loaded.config.contracts["QQQ"];
+        assert_eq!(qqq.expiry.as_deref(), Some("2026-12-19"));
+        assert_eq!(qqq.days_to_expiry, 30.0); // config-layer default; engine.rs will override it
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// SDH-LLR-131: a configured `"strike": "ATM"` must load successfully
+    /// (case-insensitively) — the earlier plain-`f64` schema would have
+    /// rejected this at config-load time even though it's valid Python
+    /// input.
+    #[test]
+    fn atm_strike_literal_loads_successfully_case_insensitively() {
+        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-atmstrike-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            r#"{"contracts": {"QQQ": {"strike": "atm", "days_to_expiry": 30.0, "implied_volatility": 0.30}}}"#,
+        )
+        .unwrap();
+
+        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
+        assert_eq!(loaded.config.contracts["QQQ"].strike, StrikeSpec::Atm);
 
         std::fs::remove_dir_all(&dir).ok();
     }

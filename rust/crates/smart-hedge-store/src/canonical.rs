@@ -71,6 +71,20 @@ mod tests {
         assert_ne!(hash_payload(&a), hash_payload(&b));
     }
 
+    /// Regression test: without the `float_roundtrip` feature enabled on
+    /// `serde_json` (see the workspace `Cargo.toml`), this exact value
+    /// reparses to a nearby-but-different f64 (0.904) and reserializes
+    /// shorter, which silently breaks `hash_payload`'s parse-then-rehash
+    /// integrity check on any payload containing such a float. Found via
+    /// `smart-hedge-cli`'s self-test failing depending on which floats the
+    /// synthetic provider happened to generate.
+    #[test]
+    fn a_float_that_is_not_its_own_shortest_round_trip_still_round_trips_through_parsing() {
+        let original = canonical_json(&json!({"data_quality": 0.9040000000000001}));
+        let reparsed: Value = serde_json::from_str(&original).unwrap();
+        assert_eq!(canonical_json(&reparsed), original);
+    }
+
     #[test]
     fn hash_is_a_64_character_lowercase_hex_string() {
         let hash = hash_payload(&json!({"a": 1}));

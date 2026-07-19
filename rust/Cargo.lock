@@ -195,6 +195,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
+name = "smart_hedge_cli"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "smart_hedge_config",
+ "smart_hedge_core_bridge",
+ "smart_hedge_engine",
+]
+
+[[package]]
 name = "smart_hedge_config"
 version = "0.1.0"
 dependencies = [
@@ -212,7 +222,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "smart_hedge_data"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "smart_hedge_config",
+ "smart_hedge_models",
+]
+
+[[package]]
+name = "smart_hedge_engine"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "smart_hedge_config",
+ "smart_hedge_core_bridge",
+ "smart_hedge_data",
+ "smart_hedge_features",
+ "smart_hedge_model_advisor",
+ "smart_hedge_models",
+ "smart_hedge_policy",
+ "smart_hedge_store",
+]
+
+[[package]]
 name = "smart_hedge_features"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "smart_hedge_config",
+ "smart_hedge_models",
+]
+
+[[package]]
+name = "smart_hedge_model_advisor"
 version = "0.1.0"
 dependencies = [
  "serde_json",

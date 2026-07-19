@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased (Rust migration: third slice — engine + CLI, zero-cost path is now runnable)
+
+Completed the zero-cost path (synthetic data + heuristic adviser +
+deterministic core + policy gate + decision store) as a real, independently
+runnable Rust program, still with **zero changes to any file in `python/`
+or `cpp/`**:
+
+- `smart-hedge-model-advisor` — full port of `model_advisor.py`'s schema
+  validation and `HeuristicAdvisor` (`OpenAIAdvisor` deliberately deferred —
+  needs an HTTP-client dependency decision), 25 tests including exact
+  transcriptions of `tests/test_model_schema.py`'s cases and a regression
+  test for a falsy-`or`-semantics porting trap (`ewma_volatility: 0.0` must
+  fall back to `realized_volatility`, same as Python's `or`, which
+  `Option::or` alone does not replicate).
+- `smart-hedge-data` — full port of `data.py`'s `SyntheticProvider` and
+  evidence-file loading (Alpaca/FRED/RSS deliberately deferred, same
+  reason), 28 tests including determinism tests across 5-second seed
+  buckets. Adds a hand-rolled xorshift64 PRNG — deliberately not a
+  Mersenne-Twister port, since only same-seed determinism and plausible
+  statistics matter here, not cross-language bit-identical output.
+- `smart-hedge-engine` — full port of `engine.py`'s orchestration
+  (contract/ATM/expiry resolution, canonical audit hashing, adviser-failure
+  fallback, replay, health), 25 tests including real end-to-end integration
+  tests against the actual C++ core binary and both branches of the
+  adviser-fallback path via a deliberately-failing `Advisor` stub.
+- `smart-hedge-cli` — a real `smart-hedge` binary porting the
+  network-free subset of `cli.py`: `build-core`, `once`, `loop`, `replay`,
+  `recent`, `self-test`. `serve`/`mcp` are recognized subcommands that
+  report "not yet implemented" rather than "unknown command" or silently
+  doing nothing. 31 tests (23 unit + 8 integration), the integration tests
+  shelling out to the actual compiled binary — including one that persists
+  a decision in one process and reads it back correctly in another.
+
+**246 tests total across the Rust workspace (was 124), all passing,
+`cargo clippy --workspace --all-targets` clean.**
+
+Found and fixed a fourth real bug this session, this time via the CLI's
+`self-test` integration test rather than a unit test: `serde_json`'s
+default float parser doesn't guarantee exact round-tripping, so a decision
+containing a float that wasn't already its own shortest round-trip
+representation (ordinary floating-point arithmetic produces these
+constantly) could reparse to a different bit pattern and fail its own
+stored content-hash check on replay — a false tamper report against data
+that was never tampered with. Fixed by enabling `serde_json`'s
+`float_roundtrip` Cargo feature workspace-wide; see the correction note
+under `SDH-LLR-072` in `requirements/LLR.md`.
+
+Updated `requirements/LLR.md` and `requirements/TRACEABILITY.md`
+accordingly: closed the "not yet ported" rows for `SDH-LLR-050` through
+`-055`, `-057`, `-080`, `-120` through `-136`, and added four new CLI
+requirements (`SDH-LLR-140` through `-143`). 51 LLRs total; 46 Rust-verified.
+
 ## Unreleased (requirements recovery + Rust migration: second slice)
 
 Added a DO-178-inspired requirements-recovery baseline (`requirements/`:

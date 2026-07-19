@@ -111,22 +111,33 @@ pub struct DashboardConfig {
 /// brand-new symbol a user adds that isn't already in the defaults (e.g.
 /// `"QQQ": {"strike": 50.0}` alongside the built-in `"SPY"`) ends up with
 /// *only* the fields the user specified, exactly like Python's
-/// `_deep_merge`. `core_bridge.py`'s `run_core` tolerates that for most
-/// fields via `contract.get(key, default)`, so the fields below mirror
-/// those exact per-field defaults with `#[serde(default = ...)]`.
-/// `strike`, `days_to_expiry`, and `implied_volatility` are the three
-/// fields Python indexes directly (`contract["strike"]`, a `KeyError` if
-/// absent) rather than defaulting — kept required here too, which fails
-/// fast at config-load time instead of Python's behavior of failing later,
-/// only once that specific symbol is actually priced.
+/// `_deep_merge`. `core_bridge.py`'s `run_core` indexes `strike`,
+/// `days_to_expiry`, and `implied_volatility` directly (no default) — but
+/// by the time `run_core` sees a contract, `engine.py`'s `contract_for`
+/// has *already* run `_days_to_expiry`, which defaults `days_to_expiry`
+/// to `30.0` (via `contract.get("days_to_expiry", 30.0)`) whenever
+/// neither it nor `expiry` was configured. A config specifying only
+/// `expiry` (no `days_to_expiry` at all) is completely valid Python
+/// input — an earlier version of this struct made `days_to_expiry`
+/// required, which would have rejected that config at load time. Fixed:
+/// only `strike` and `implied_volatility` remain genuinely required
+/// (Python has no fallback path that ever fills those in for a symbol
+/// that omits them); everything else, including the new `expiry` field,
+/// mirrors `core_bridge.py`'s/`engine.py`'s exact per-field defaults.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractConfig {
     #[serde(default = "default_option_type")]
     pub option_type: String,
     #[serde(default = "default_exercise_style")]
     pub exercise_style: String,
-    pub strike: f64,
+    pub strike: crate::strike_spec::StrikeSpec,
+    #[serde(default = "default_days_to_expiry")]
     pub days_to_expiry: f64,
+    /// ISO `YYYY-MM-DD`. When present, overrides `days_to_expiry` with a
+    /// dynamically computed value — see `smart_hedge_engine::contract`
+    /// (SDH-LLR-132).
+    #[serde(default)]
+    pub expiry: Option<String>,
     #[serde(default)]
     pub contracts: i64,
     #[serde(default = "default_multiplier")]
@@ -148,6 +159,10 @@ fn default_option_type() -> String {
 
 fn default_exercise_style() -> String {
     "american".to_string()
+}
+
+fn default_days_to_expiry() -> f64 {
+    30.0
 }
 
 fn default_multiplier() -> f64 {

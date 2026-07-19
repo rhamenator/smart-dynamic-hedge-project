@@ -7,6 +7,10 @@ members = [
   "crates/smart-hedge-core-bridge",
   "crates/smart-hedge-features",
   "crates/smart-hedge-store",
+  "crates/smart-hedge-model-advisor",
+  "crates/smart-hedge-data",
+  "crates/smart-hedge-engine",
+  "crates/smart-hedge-cli",
 ]
 
 [workspace.package]
@@ -23,7 +27,17 @@ publish = false
 # Timestamps, UUIDs, and error types are hand-rolled rather than pulling in
 # `time`/`uuid`/`thiserror` — see smart-hedge-models::time_util.
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `float_roundtrip`: without it, serde_json's float parser trades exact
+# round-tripping for speed, so a stored float like 0.9040000000000001 can
+# reparse to a nearby-but-different bit pattern (e.g. 0.904) and reserialize
+# to a different string. That silently breaks any hash-after-parse
+# integrity check (smart-hedge-store's tamper detection, engine.py's
+# canonical_hash/_file_hash equivalents) whenever a payload contains a
+# float that isn't already its own shortest round-trip representation —
+# found via smart-hedge-cli's self-test integration test failing
+# nondeterministically depending on which floats the synthetic provider
+# happened to generate.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 # Deliberate, documented exception to "hand-roll instead of depend": the
 # SQLite file format (WAL, B-tree pages, freelist management, journal
 # recovery) is exactly the kind of complex, correctness-critical format

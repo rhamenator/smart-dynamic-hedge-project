@@ -15,6 +15,7 @@ pub mod recommendation;
 pub mod sha256;
 pub mod snapshot;
 pub mod time_util;
+pub mod unique_id;
 
 pub use assessment::ModelAssessment;
 pub use bar::Bar;
@@ -27,3 +28,4 @@ pub use recommendation::Recommendation;
 pub use sha256::{sha256, sha256_hex};
 pub use snapshot::MarketSnapshot;
 pub use time_util::TimestampUtc;
+pub use unique_id::new_unique_id;

@@ -220,20 +220,34 @@ Verifying tests: Rust `paths::tests::*` (4 cases). Python: **Open**.
 Statement: A contract symbol not already present in the default config
 (e.g. a user-added `"QQQ"`) shall deserialize successfully from only the
 fields the user specifies, with `option_type`, `exercise_style`,
-`contracts`, `multiplier`, `current_shares`, `rate`, `dividend_yield`, and
-`base_no_trade_band_shares` defaulted; `strike`, `days_to_expiry`, and
-`implied_volatility` remain required.
+`days_to_expiry`, `expiry`, `contracts`, `multiplier`, `current_shares`,
+`rate`, `dividend_yield`, and `base_no_trade_band_shares` defaulted; only
+`strike` and `implied_volatility` remain required.
 Source: `python/smart_hedge/core_bridge.py:90-112` (`contract.get(key,
-default)` calls); recovered behavior of `_deep_merge` on a symbol absent
-from the base config.
+default)` calls); `python/smart_hedge/engine.py:40-46` (`_days_to_expiry`,
+which is what actually guarantees `days_to_expiry` is present and valid
+by the time `run_core` reads it — see the correction below).
 Verification: Test. Status: Implemented.
 Implementation: Rust `smart_hedge_config::types::ContractConfig`
 (`#[serde(default = ...)]` per field). Python: implicit in
-`core_bridge.run_core`'s per-field `.get()` calls — same net behavior,
-recovered from reading the code, not from a written-down rule.
+`core_bridge.run_core`'s per-field `.get()` calls plus `engine.py`'s
+`_days_to_expiry` fallback — same net behavior, recovered from reading
+the code, not from a written-down rule.
 Verifying tests: Rust `loader::tests::a_brand_new_contract_symbol_gets_only_the_fields_it_specifies_plus_defaults`,
-`loader::tests::a_new_contract_symbol_missing_a_required_field_fails_fast_at_load_time`.
+`loader::tests::a_contract_symbol_with_only_an_expiry_date_needs_no_days_to_expiry`.
 Python: **Open**.
+
+**Correction (2026-07-19, while porting `engine.py`):** an earlier version
+of this entry, and of `ContractConfig`, made `days_to_expiry` required —
+reasoned only from `core_bridge.py`'s raw `contract["days_to_expiry"]`
+indexing, without accounting for `engine.py`'s `_days_to_expiry` helper,
+which runs first and defaults it to `30.0` (or computes it from `expiry`)
+whenever the config omits it. A config specifying only `expiry` is valid
+Python input that the earlier, stricter Rust schema would have rejected
+at load time. This is exactly the kind of cross-function interaction
+that's easy to miss porting module-by-module without the whole picture —
+recorded here rather than silently fixed, per the methodology's requirement
+that corrections be traceable, not just applied.
 
 ## C++ core invocation and multiplatform behavior (traces to SDH-HLR-020, SDH-HLR-120)
 
@@ -358,20 +372,23 @@ key set is not exactly `{regime, confidence, hedge_urgency,
 band_multiplier, summary, evidence_ids, risks, scenario_spot_shocks,
 data_requests}` — both missing and extra keys are rejected.
 Source: `python/smart_hedge/model_advisor.py:99-103`.
-Verification: Test. Status: Implemented (Python only — not yet ported).
-Implementation: Python `validate_assessment_payload`.
-Verifying tests: `tests/test_model_schema.py::test_extra_trade_field_rejected`.
+Verification: Test. Status: Implemented.
+Implementation: Python `validate_assessment_payload`; Rust
+`smart_hedge_model_advisor::schema::validate_assessment_payload`.
+Verifying tests: `tests/test_model_schema.py::test_extra_trade_field_rejected`;
+Rust `schema::tests::missing_field_is_rejected`, `schema::tests::extra_field_is_rejected`.
 
 ### SDH-LLR-051 — Regime enum enforcement
 Statement: `regime` shall be one of exactly seven values: `calm`,
 `trend_up`, `trend_down`, `volatile`, `jump_risk`, `illiquid`,
 `uncertain`.
 Source: `python/smart_hedge/model_advisor.py:11-19,104-106`.
-Verification: Test. Status: Implemented (Python only).
-Implementation: Python `ALLOWED_REGIMES`, `validate_assessment_payload`.
-Verifying tests: **Open** — `test_model_schema.py` doesn't test an
-invalid regime directly (only the valid-payload and extra-field/
-out-of-range-band cases).
+Verification: Test. Status: Implemented.
+Implementation: Python `ALLOWED_REGIMES`, `validate_assessment_payload`;
+Rust `smart_hedge_model_advisor::schema::ALLOWED_REGIMES`.
+Verifying tests: Rust `schema::tests::invalid_regime_is_rejected`,
+`schema::tests::regime_as_non_string_is_rejected`. Python: **Open** —
+`test_model_schema.py` doesn't test an invalid regime directly.
 
 ### SDH-LLR-052 — Numeric field bounds
 Statement: `confidence`/`hedge_urgency` shall be finite numbers in
@@ -379,17 +396,23 @@ Statement: `confidence`/`hedge_urgency` shall be finite numbers in
 values outside these ranges (or non-numeric, or boolean) shall be
 rejected.
 Source: `python/smart_hedge/model_advisor.py:76-82,118-120`.
-Verification: Test. Status: Implemented (Python only).
-Implementation: Python `_finite_number`.
-Verifying tests: `test_model_schema.py::test_out_of_range_band_rejected`.
+Verification: Test. Status: Implemented.
+Implementation: Python `_finite_number`; Rust `schema::finite_number`.
+Verifying tests: `test_model_schema.py::test_out_of_range_band_rejected`;
+Rust `schema::tests::out_of_range_band_multiplier_is_rejected`,
+`schema::tests::boolean_confidence_is_rejected_as_non_numeric`,
+`schema::tests::nonfinite_scenario_shock_is_rejected`.
 
 ### SDH-LLR-053 — Scenario-shock bounds
 Statement: `scenario_spot_shocks` shall contain 1 to 7 finite numbers,
 each in `[-0.30, 0.30]`.
 Source: `python/smart_hedge/model_advisor.py:107-110`.
-Verification: Test. Status: Implemented (Python only). **Open**: no
-dedicated test for the count or per-item bound (only the valid-payload
-case exercises this field, with in-range values).
+Verification: Test. Status: Implemented.
+Implementation: Rust `schema::validate_assessment_payload`.
+Verifying tests: Rust `schema::tests::zero_scenario_shocks_is_rejected`,
+`schema::tests::too_many_scenario_shocks_is_rejected`,
+`schema::tests::nonfinite_scenario_shock_is_rejected`. Python: **Open** —
+no dedicated test for the count or per-item bound.
 
 ### SDH-LLR-054 — Bounded string-list fields
 Statement: `evidence_ids`, `risks`, and `data_requests` shall each be
@@ -397,8 +420,12 @@ lists capped at 8 items, with each item truncated to a maximum length
 (160/240/240 characters respectively) rather than rejected for being too
 long.
 Source: `python/smart_hedge/model_advisor.py:85-93`.
-Verification: Test. Status: Implemented (Python only). **Open**: no test
-exercises the truncation or the item-count cap.
+Verification: Test. Status: Implemented.
+Implementation: Rust `schema::string_list`.
+Verifying tests: Rust `schema::tests::too_many_list_items_is_rejected`,
+`schema::tests::string_list_items_are_truncated_not_rejected_when_too_long`,
+`schema::tests::non_string_list_item_is_rejected`. Python: **Open** — no
+test exercises the truncation or the item-count cap.
 
 ### SDH-LLR-055 — Heuristic adviser makes no network call
 Statement: `HeuristicAdvisor.assess` shall be a pure function of its
@@ -406,9 +433,24 @@ inputs (snapshot, features, core, contract) with no network access, no
 file I/O beyond what those inputs already contain, and shall always
 return a schema-valid `ModelAssessment`.
 Source: `python/smart_hedge/model_advisor.py:130-207`.
-Verification: Test, Inspection. Status: Implemented (Python only).
-Verifying tests: transitively via `test_engine.py`; **Open** — no direct
-unit test isolates `HeuristicAdvisor` from the rest of the engine.
+Verification: Test, Inspection. Status: Implemented.
+Implementation: Python `HeuristicAdvisor`; Rust
+`smart_hedge_model_advisor::heuristic::HeuristicAdvisor`.
+Verifying tests: Rust `heuristic::tests::*` (10 cases, isolate
+`HeuristicAdvisor` directly with hand-built fixtures — regime
+classification, gamma-driven urgency, confidence bounds, evidence-ID
+capping, and the falsy-`or` volatility-fallback quirk (`SDH-LLR-055`
+correction below)). Python: transitively via `test_engine.py`; **Open** —
+no direct unit test isolates `HeuristicAdvisor` from the rest of the engine.
+
+**Correction (2026-07-19, while porting):** Python's
+`values.get("ewma_volatility") or values.get("realized_volatility")`
+treats an *exact* `0.0` ewma value as falsy and falls through to
+realized volatility, not just a missing/`None` value — an easy detail to
+miss porting literally (`Option::or` alone does not replicate `or`'s
+falsy-any-zero semantics). Replicated in Rust with an explicit
+`.filter(|&v| v != 0.0)`; regression test:
+`heuristic::tests::zero_ewma_volatility_falls_back_to_realized_volatility`.
 
 ### SDH-LLR-056 — OpenAI adviser fails fast on missing configuration
 Statement: Constructing `OpenAIAdvisor` shall raise immediately (not on
@@ -427,9 +469,14 @@ Statement: When the active adviser raises, the engine shall fall back to
 `model.fallback_to_heuristic` is true; otherwise the original exception
 shall propagate.
 Source: `python/smart_hedge/engine.py:99-107`.
-Verification: Test. Status: Implemented (Python only). **Open**: no test
-exercises either branch of this behavior (would require an adviser stub
-that always raises).
+Verification: Test. Status: Implemented.
+Implementation: Python `SmartHedgeEngine.recommendation`; Rust
+`smart_hedge_engine::engine::SmartHedgeEngine::recommendation_at`.
+Verifying tests: Rust `integration_tests::adviser_failure_falls_back_to_heuristic_when_enabled`,
+`integration_tests::adviser_failure_propagates_when_fallback_disabled`
+(both use a deliberately-failing `Advisor` stub — `AlwaysFailsAdvisor` —
+injected via `SmartHedgeEngine::with_components`). Python: **Open** (no
+test exercises either branch).
 
 ### SDH-LLR-060 — Evidence defaults to untrusted
 Statement: `EvidenceItem.untrusted_text` shall default to `true`; only
@@ -501,6 +548,24 @@ entirely, and asserts `get` reports `stored_content_hash_valid: false`).
 Python: `tests/test_engine.py` (replay hash-validity assertion, per
 `README.md` "SQLite records pass content-hash verification on replay").
 
+**Correction (2026-07-19, found via `smart-hedge-cli`'s self-test
+integration test):** `smart-hedge-store`'s hash-then-store,
+parse-then-rehash round trip depends on `serde_json` reparsing a stored
+float back to the *exact* bit pattern that produced it. Without the
+`float_roundtrip` Cargo feature, `serde_json`'s float parser trades exact
+round-tripping for speed, so a float like `0.9040000000000001` (not itself
+the shortest round-trip representation of its bit pattern — the kind of
+value ordinary floating-point arithmetic produces constantly) can reparse
+to a nearby-but-different f64 and reserialize as the shorter `0.904`,
+making `stored_content_hash_valid` false for a decision that was never
+tampered with. Fixed by enabling `serde_json/float_roundtrip` workspace-wide
+(`rust/Cargo.toml`); regression test:
+`smart_hedge_store::canonical::tests::a_float_that_is_not_its_own_shortest_round_trip_still_round_trips_through_parsing`.
+This was invisible to every test written before this session because none
+of them stored a payload containing a float that wasn't already its own
+shortest round-trip form — recorded here rather than silently patched, per
+the methodology's requirement that corrections be traceable.
+
 ### SDH-LLR-073 — Stored hash lives beside, not inside, the hashed JSON
 Statement: The content hash shall be stored in a separate database
 column from the JSON payload, never injected into the JSON before
@@ -528,6 +593,12 @@ relies on the author updating it, which is a real gap in a hard guarantee.
 Verification: Inspection. Status: **Partial** — the assertion is present,
 but nothing prevents it from silently going stale if HLR-010 were ever
 violated elsewhere in the codebase.
+Implementation: Python `SmartHedgeEngine.recommendation`/`health`; Rust
+`smart_hedge_engine::engine::SmartHedgeEngine::recommendation_at`/`health`
+(both hardcode `false` literals, same as Python — same structural caveat
+applies to the Rust port).
+Verifying tests: Rust `integration_tests::recommendation_and_health_report_the_synthetic_heuristic_path`
+asserts both fields on a real end-to-end decision and on `health()`.
 
 ### SDH-LLR-081 — Alpaca provider is data-only
 Statement: `AlpacaReadOnlyProvider` shall construct requests only against
@@ -616,6 +687,236 @@ Verification: Test. Status: Implemented.
 Implementation: Python `build_features`; Rust `build::build_features`.
 Verifying tests: Rust `integration_tests::trend_score_is_none_when_realized_volatility_is_at_the_floor`,
 `integration_tests::trend_score_is_present_with_a_real_trend_and_volatility`. Python: **Open**.
+
+## Market data providers (traces to SDH-HLR-070, SDH-HLR-130)
+
+### SDH-LLR-120 — Synthetic provider is always available and needs no account
+Statement: The synthetic provider shall produce a complete `MarketSnapshot`
+(quote, 180 bars, evidence) for any symbol using only a deterministic
+pseudo-random walk seeded from the symbol and a time bucket — no network
+access, no API key, no external account.
+Source: `python/smart_hedge/data.py:41-121` (`SyntheticProvider`).
+Verification: Test. Status: Implemented.
+Implementation: Python `SyntheticProvider`; Rust
+`smart_hedge_data::synthetic::SyntheticProvider`.
+Verifying tests: Rust `synthetic::tests::produces_the_expected_bar_count`
+and the rest of `synthetic::tests::*`.
+
+### SDH-LLR-121 — Synthetic quote market state is always "open"
+Statement: The synthetic provider's quote shall report `market_state:
+"open"` unconditionally, since it is a research fixture, not a claim about
+any real exchange's session state.
+Source: `python/smart_hedge/data.py:90` (comment: "synthetic market is
+intentionally always available").
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_data::synthetic::SyntheticProvider`.
+Verifying tests: Rust `synthetic::tests::market_state_is_always_open`.
+
+### SDH-LLR-122 — Synthetic seed is deterministic within a 5-second bucket
+Statement: The synthetic provider's random seed shall be derived from the
+symbol and `floor(now / 5 seconds)`, so repeated calls within the same
+5-second window for the same symbol produce identical output (useful for
+caching/dashboard polling), while calls in different windows differ.
+Source: `python/smart_hedge/data.py:48-51`.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_data::synthetic::derive_seed`.
+Verifying tests: Rust `synthetic::tests::same_symbol_and_bucket_produces_identical_snapshots`.
+
+### SDH-LLR-123 — Evidence-file items are filtered by symbol
+Statement: Loading the user-supplied evidence file shall include an item
+for a given symbol only if the item's `symbols` list contains that symbol
+(case-insensitive) or the literal wildcard `"*"`; an item with an empty/
+absent `symbols` list shall be included for every symbol (matching
+Python's `row.get("symbols", [symbol])` default, which trivially always
+matches when no explicit list is given).
+Source: `python/smart_hedge/data.py:229-234`.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_data::evidence_file::row_applies_to_symbol`.
+Verifying tests: Rust `evidence_file::tests::symbol_match_is_case_insensitive`,
+`evidence_file::tests::wildcard_symbol_always_applies`.
+
+### SDH-LLR-124 — Evidence-file fields are bounded and defensively typed
+Statement: Loading the evidence file shall clamp `quality` to `[0, 1]`,
+truncate `title`/`source`/`text` to fixed maximum lengths (240/120/5000
+characters respectively), default `untrusted_text` to `true`, and skip
+(not error on) any row that isn't a JSON object — a malformed evidence
+file must degrade gracefully, not crash the whole snapshot.
+Source: `python/smart_hedge/data.py:214-248`.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_data::evidence_file::load_evidence_file`.
+Verifying tests: Rust `evidence_file::tests::title_is_truncated_to_240_characters`,
+`evidence_file::tests::non_object_rows_are_skipped_not_erroring`.
+
+### SDH-LLR-125 — Missing or unreadable evidence file is not an error
+Statement: A configured evidence-file path that doesn't exist, or that
+fails to parse as JSON, shall yield an empty evidence list rather than
+raising — a research convenience file must be optional in practice, not
+just in the config schema.
+Source: `python/smart_hedge/data.py:218-224` (`except (OSError,
+json.JSONDecodeError): return []`).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_data::evidence_file::load_evidence_file`.
+Verifying tests: Rust `evidence_file::tests::missing_file_returns_empty_not_an_error`,
+`evidence_file::tests::invalid_json_returns_empty_not_an_error`.
+
+### SDH-LLR-126 — Network-backed providers are deferred, not stubbed silently
+Statement: `AlpacaReadOnlyProvider`, FRED evidence, and RSS evidence are
+explicitly **not yet ported** to Rust as of this entry — this is a
+recorded scope decision (needs an HTTP-client dependency choice), not an
+oversight. Any Rust code claiming provider parity must not silently omit
+these.
+Source: conversation, 2026-07-19.
+Verification: Inspection. Status: Open (deferred by design — see
+`rust/README.md` "Known scope: deferred network providers").
+
+## Orchestration (traces to SDH-HLR-020, SDH-HLR-040, SDH-HLR-060, SDH-HLR-100, SDH-HLR-110)
+
+### SDH-LLR-130 — Contract type fields are validated, not merely typed
+Statement: Resolving a contract shall reject any `option_type` other than
+`call`/`put` and any `exercise_style` other than `american`/`european`,
+even though the config schema already types these as strings — a syntactically
+valid but semantically invalid value (e.g. `"straddle"`) must be caught at
+resolution time, not passed through to the C++ core.
+Source: `python/smart_hedge/engine.py:76-79` (`contract_for`).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_engine::contract::resolve_contract`.
+Verifying tests: Rust `contract::tests::invalid_option_type_is_rejected`,
+`contract::tests::invalid_exercise_style_is_rejected`.
+
+### SDH-LLR-131 — "ATM" strike shorthand resolves from the live quote
+Statement: A configured `strike` of the literal string `"ATM"`
+(case-insensitive) shall resolve to the rounded current quote midpoint at
+recommendation time, not a static value — and the resolved strike shall
+still be validated positive and finite afterward.
+Source: `python/smart_hedge/engine.py:89-94`.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_engine::contract::resolve_contract`.
+Verifying tests: Rust `contract::tests::atm_strike_resolves_to_rounded_midpoint`,
+`contract::tests::nonpositive_resolved_strike_is_rejected`.
+
+### SDH-LLR-132 — Explicit expiry date overrides static days-to-expiry
+Statement: When a contract specifies an `expiry` date (ISO `YYYY-MM-DD`),
+days-to-expiry shall be computed dynamically as the time remaining until
+21:00 UTC on that date, overriding any configured static
+`days_to_expiry`; when `expiry` is absent, the configured
+`days_to_expiry` (or its default) is used unchanged. The result is
+floored at `0.0`, never negative.
+Source: `python/smart_hedge/engine.py:40-46` (`_days_to_expiry`).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_engine::contract::days_to_expiry_from_date`.
+Verifying tests: Rust `contract::tests::expiry_date_overrides_static_days_to_expiry`,
+`contract::tests::expiry_date_overrides_even_an_explicit_days_to_expiry_override`,
+`contract::tests::days_to_expiry_from_date_is_floored_at_zero_for_a_past_date`.
+
+### SDH-LLR-133 — Canonical hashing extends to arbitrary audit values
+Statement: The engine shall compute `input_hash` and `model_output_hash`
+using the same canonical-JSON-then-SHA-256 approach as the decision-store
+content hash (SDH-LLR-070/-071), applied to the combined
+contract/snapshot/features/core inputs and to the model assessment
+output respectively — not a different, ad hoc hashing scheme for audit
+fields versus storage.
+Source: `python/smart_hedge/engine.py:25-27` (`_canonical_hash`), `118-129`.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_engine::hashing::canonical_hash`.
+Verifying tests: Rust `hashing::tests::canonical_hash_is_deterministic_regardless_of_key_order`,
+`hashing::tests::canonical_hash_differs_for_different_values`.
+
+### SDH-LLR-134 — Core binary is hashed for audit, "missing" if absent
+Statement: The audit record shall include a SHA-256 hash of the resolved
+core binary file; if the binary does not exist (or isn't a regular
+file), the hash field shall be the literal string `"missing"` rather
+than raising or omitting the field.
+Source: `python/smart_hedge/engine.py:30-37` (`_file_hash`).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_engine::hashing::file_hash`.
+Verifying tests: Rust `hashing::tests::file_hash_of_a_missing_path_is_the_literal_missing`,
+`hashing::tests::file_hash_of_a_real_file_is_its_sha256`.
+
+### SDH-LLR-135 — Replay is explicitly tagged as network-free
+Statement: A replayed decision's audit block shall include
+`replay_mode: "stored_inputs_and_outputs_no_network"`, making the
+network-free guarantee (SDH-HLR-060) visible in the replayed payload
+itself, not just true by construction.
+Source: `python/smart_hedge/engine.py:157-162` (`replay`).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_engine::engine::SmartHedgeEngine::replay`.
+Verifying tests: Rust `integration_tests::replay_returns_the_stored_decision_tagged_as_a_replay`;
+`smart_hedge_cli` `tests/cli_integration.rs::recent_and_replay_see_a_decision_persisted_by_a_prior_process`
+(end-to-end across two separate process invocations).
+
+### SDH-LLR-136 — Health report never claims an order endpoint exists
+Statement: The engine's health report shall always include
+`broker_order_endpoint_present: false`, mirroring the same guarantee the
+per-decision audit record makes (SDH-LLR-080), at the service-health
+level too.
+Source: `python/smart_hedge/engine.py:167-176` (`health`).
+Verification: Inspection. Status: Implemented.
+Implementation: Rust `smart_hedge_engine::engine::SmartHedgeEngine::health`.
+Verifying tests: Rust `integration_tests::recommendation_and_health_report_the_synthetic_heuristic_path`.
+
+## CLI (traces to SDH-HLR-060, SDH-HLR-140)
+
+### SDH-LLR-140 — CLI argument parsing rejects unknown flags and missing values
+Statement: The CLI shall reject an unrecognized flag for a given
+subcommand, and a flag given without its required value, with a specific
+error message — never silently ignoring it or treating it as a positional
+argument.
+Source: `python/smart_hedge/cli.py` (`argparse`'s built-in behavior, relied
+on implicitly); Rust CLI (hand-rolled, since a zero-dependency parser
+doesn't get this for free — see `smart_hedge_cli::args::FlagCursor`).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_cli::args::parse_args`.
+Verifying tests: Rust `args::tests::once_rejects_an_unknown_flag`,
+`args::tests::missing_value_for_a_flag_is_reported`;
+`tests/cli_integration.rs::an_unrecognized_flag_exits_2_before_touching_the_network_or_store`.
+Python: **Open** (covered only by `argparse`'s own untested-here defaults).
+
+### SDH-LLR-141 — `serve`/`mcp` are recognized but explicitly not-yet-implemented
+Statement: The Rust CLI shall recognize `serve` and `mcp` as valid
+subcommands (not report "unknown command") but exit with a specific
+"not yet implemented" error, distinguishing a deliberately deferred
+dependency decision (SDH-LLR-126) from a typo or a genuinely unsupported
+command.
+Source: conversation, 2026-07-19 (staged Rust migration scope);
+`python/smart_hedge/cli.py` `cmd_serve`/`cmd_mcp` (Python actually
+implements both, via `uvicorn`/`mcp_server.py` — the Rust CLI does not yet).
+Verification: Test. Status: Implemented (Rust only — this specific
+recognized-but-deferred distinction doesn't apply to Python, which has no
+gap here).
+Verifying tests: Rust `args::tests::serve_and_mcp_parse_but_are_handled_as_not_yet_ported_by_the_caller`,
+`tests/cli_integration.rs::serve_and_mcp_report_not_yet_implemented_rather_than_unknown_command`.
+
+### SDH-LLR-142 — `self-test` validates paper-only and hash-integrity invariants end-to-end
+Statement: The `self-test` command shall build/verify the deterministic
+core, run the core binary's own `--self-test`, generate one real
+recommendation, and assert `mode == "paper"`,
+`policy.live_execution_allowed == false`,
+`audit.broker_order_endpoint_present == false`, and that replaying the
+just-created decision reports `stored_content_hash_valid == true` —
+failing loudly (nonzero exit) if any assertion doesn't hold, rather than
+printing a partial pass.
+Source: `python/smart_hedge/cli.py` `cmd_self_test`.
+Verification: Test. Status: Implemented.
+Implementation: Python `cmd_self_test`; Rust
+`smart_hedge_cli::commands::cmd_self_test`.
+Verifying tests: Rust `tests/cli_integration.rs::self_test_passes_against_the_synthetic_heuristic_path`
+— this is the test that found and drove the `float_roundtrip` correction
+under `SDH-LLR-072`. Python: **Open** (no automated test runs `cli.py
+self-test` itself; it's a manually-invoked smoke test in practice).
+
+### SDH-LLR-143 — `loop` enforces a minimum 1-second interval
+Statement: The `loop` command shall sleep for at least `1.0` second
+between recommendations regardless of a smaller or negative `--interval`
+value.
+Source: `python/smart_hedge/cli.py:58` (`time.sleep(max(1.0,
+args.interval))`).
+Verification: Inspection. Status: Implemented.
+Implementation: Python `cmd_loop`; Rust
+`smart_hedge_cli::commands::cmd_loop` (`interval.max(1.0)`).
+Status: **Open** — no automated test exercises the loop's actual sleep
+timing in either language (would require killing a long-running process
+mid-loop); the Rust logic is a direct one-line mirror of Python's
+`max(1.0, ...)`.
 
 ## Dependency minimization (traces to SDH-HLR-160)
 

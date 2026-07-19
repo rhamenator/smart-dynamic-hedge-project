@@ -27,6 +27,18 @@ impl TimestampUtc {
         TimestampUtc { secs: dur.as_secs() as i64, nanos: dur.subsec_nanos() }
     }
 
+    /// Constructs an instant directly from seconds-since-epoch and a
+    /// nanosecond remainder, normalizing an out-of-range `nanos` into
+    /// `secs`.
+    pub fn from_unix(secs: i64, nanos: u32) -> Self {
+        let extra_secs = (nanos / 1_000_000_000) as i64;
+        TimestampUtc { secs: secs.wrapping_add(extra_secs), nanos: nanos % 1_000_000_000 }
+    }
+
+    pub fn subsec_nanos(&self) -> u32 {
+        self.nanos
+    }
+
     pub fn unix_seconds(&self) -> i64 {
         self.secs
     }
@@ -207,6 +219,21 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_unix_round_trips_through_to_iso_string() {
+        let t = TimestampUtc::from_unix(1_700_000_000, 0);
+        assert_eq!(t.unix_seconds(), 1_700_000_000);
+        let parsed = TimestampUtc::parse_flexible(&t.to_iso_string()).unwrap();
+        assert_eq!(t, parsed);
+    }
+
+    #[test]
+    fn from_unix_normalizes_overflowing_nanos() {
+        let t = TimestampUtc::from_unix(0, 1_500_000_000);
+        assert_eq!(t.unix_seconds(), 1);
+        assert_eq!(t.subsec_nanos(), 500_000_000);
+    }
 
     #[test]
     fn parses_z_suffix() {

@@ -14,12 +14,21 @@ use crate::run_with_timeout::run_command_with_timeout;
 /// `--json` output into a typed `CoreResponse` (rather than a raw dict —
 /// see `smart_hedge_models::core_response` for why that also subsumes
 /// Python's separate "hedge"/"greeks" key-presence check).
+///
+/// `strike` is an explicit, already-resolved `f64` parameter (like
+/// `spot`) rather than read from `contract.strike` — `ContractConfig`'s
+/// strike may be the unresolved `"ATM"` literal (see
+/// `smart_hedge_config::StrikeSpec`); resolving that against a live quote
+/// is `smart-hedge-engine`'s job, done before this function is ever
+/// called, matching Python's `engine.py` flow where `contract["strike"]`
+/// is always a plain float by the time `run_core` reads it.
 pub fn run_core(
     loaded: &LoadedConfig,
     project_root: &Path,
     cpp_source: &Path,
     contract: &ContractConfig,
     spot: f64,
+    strike: f64,
 ) -> Result<CoreResponse, CoreError> {
     let binary = ensure_core(loaded, project_root, cpp_source)?;
 
@@ -28,7 +37,7 @@ pub fn run_core(
         .arg("--spot")
         .arg(spot.to_string())
         .arg("--strike")
-        .arg(contract.strike.to_string())
+        .arg(strike.to_string())
         .arg("--rate")
         .arg(contract.rate.to_string())
         .arg("--dividend-yield")
@@ -98,7 +107,7 @@ mod tests {
         let loaded = smart_hedge_config::load_config(None, &EnvOverrides::default(), &root).unwrap();
         let contract = loaded.config.contracts.get("SPY").expect("default config has an SPY contract").clone();
 
-        let result = run_core(&loaded, &root, &cpp_source, &contract, 100.0);
+        let result = run_core(&loaded, &root, &cpp_source, &contract, 100.0, 100.0);
         let response = match result {
             Ok(r) => r,
             Err(e) => panic!("run_core failed: {e}"),
