@@ -5,6 +5,8 @@ members = [
   "crates/smart-hedge-config",
   "crates/smart-hedge-policy",
   "crates/smart-hedge-core-bridge",
+  "crates/smart-hedge-features",
+  "crates/smart-hedge-store",
 ]
 
 [workspace.package]
@@ -22,6 +24,16 @@ publish = false
 # `time`/`uuid`/`thiserror` — see smart-hedge-models::time_util.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Deliberate, documented exception to "hand-roll instead of depend": the
+# SQLite file format (WAL, B-tree pages, freelist management, journal
+# recovery) is exactly the kind of complex, correctness-critical format
+# that is a *worse* security/reliability trade-off to reimplement than to
+# depend on — the same reasoning that keeps serde_json instead of a
+# hand-rolled JSON parser, applied to a much larger surface. `bundled`
+# compiles SQLite from source rather than linking whatever version
+# happens to be on the host, which matters for the multiplatform
+# requirement (no assumption about a system SQLite being present/current).
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

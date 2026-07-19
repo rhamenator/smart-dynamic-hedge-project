@@ -14,31 +14,52 @@ then connect it to the CLI/dashboard/MCP entry points in a later phase.
 | `smart-hedge-config` | `python/smart_hedge/config.py` | fixture-tested — 22 tests; JSON-tree deep-merge (parity with Python's dict merge) feeding a statically-typed `Config`, not an untyped dict |
 | `smart-hedge-policy` | `python/smart_hedge/policy.py` | fixture-tested — 18 tests, including exact transcriptions of all four cases in `tests/test_policy.py` plus additional boundary coverage (`TRADE_SHARE_LIMIT`, `PREVIEW_NOTIONAL_LIMIT`, `NONFINITE_CORE_VALUE`, round-half-to-even) the Python suite doesn't currently exercise |
 | `smart-hedge-core-bridge` | `python/smart_hedge/core_bridge.py` | fixture-tested + one real integration test — 7 tests, including one that actually builds and runs the real `cpp/smart_dynamic_hedge.cpp` binary end to end when a toolchain is available (skips gracefully otherwise) |
+| `smart-hedge-features` | `python/smart_hedge/features.py` | fixture-tested — 33 tests covering data-quality composition, missing-feature marking, the volume-z-score/trend-score history-and-floor guards |
+| `smart-hedge-store` | `python/smart_hedge/store.py` | fixture-tested — 19 tests, including one that directly corrupts a stored row via raw SQL and confirms replay detects the tamper |
 
 Not yet ported: `cli.py`, `dashboard.py`, `data.py`, `engine.py`,
-`features.py`, `mcp_server.py`, `model_advisor.py`, `store.py`. Nothing in
-this workspace is wired to a real running binary yet — see "Connecting it
-together" below.
+`mcp_server.py`, `model_advisor.py`. Nothing in this workspace is wired to
+a real running binary yet — see "Connecting it together" below.
 
-**Total: 66 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 124 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace` clean under `clippy::all`.**
+
+## Requirements traceability
+
+This migration is tracked against a DO-178-inspired requirements-recovery
+baseline in `../requirements/` (`HLR.md`, `LLR.md`, `TRACEABILITY.md`) —
+see `market-system-contracts`'s `docs/REQUIREMENTS_METHODOLOGY.md` for the
+scheme. Every crate above exists to satisfy specific recovered
+requirements, not just to "port a file"; the traceability matrix is the
+place to check what's actually verified versus still open.
 
 ## Dependency and testing policy
 
 Same as `market-intelligence-mcp`/`trade-guard-mcp`: `serde`/`serde_json`
-are the only third-party dependencies (kept deliberately — hand-rolling
+are the baseline third-party dependencies (kept deliberately — hand-rolling
 JSON parsing would be a worse security trade-off, not a better one), every
 crate forbids `unsafe_code` and warns on `clippy::all`
 (`[workspace.lints]`), and testing favors hand-rolled, dependency-free
 boundary/fuzz-smoke tests over pulling in `proptest`/`cargo-fuzz`.
 
-This pass already found and fixed two real bugs the Python original didn't
-have (or didn't need to worry about, being untyped) purely from writing the
-tests: an `Option::then_some` eager-evaluation panic in the timestamp
-parser's digit-conversion helper, and a missing `#[serde(default)]` on
-`ContractConfig` fields that would have made adding a new contract symbol
-with only partial fields (which Python's dict-merge tolerates) fail to
-deserialize in Rust.
+`smart-hedge-store` adds one more: `rusqlite` (`bundled` feature). The
+SQLite file format (WAL, B-tree pages, journal recovery) is exactly the
+kind of complex, correctness-critical format that's a *worse* trade-off to
+hand-roll than to depend on — the same reasoning as `serde_json`, applied
+to a much bigger surface. SHA-256, by contrast, *is* hand-rolled
+(`smart_hedge_models::sha256`) since it's small, completely specified, and
+has official NIST test vectors to verify against — see that module.
+
+This pass already found and fixed three real bugs purely from writing the
+tests, none of which the Python original had to worry about (being
+untyped, or simply never exercised this hard): an `Option::then_some`
+eager-evaluation panic in the timestamp parser's digit-conversion helper; a
+missing `#[serde(default)]` on `ContractConfig` fields that would have made
+adding a new contract symbol with only partial fields (which Python's
+dict-merge tolerates) fail to deserialize in Rust; and a hand-transcription
+typo in one of the SHA-256 test's own "expected" constants (caught by, and
+then resolved against, an independent check via Python's `hashlib` — the
+implementation was correct, the memorized test literal wasn't).
 
 ## Known, documented behavioral differences from Python
 

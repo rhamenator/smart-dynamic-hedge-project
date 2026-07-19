@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased (requirements recovery + Rust migration: second slice)
+
+Added a DO-178-inspired requirements-recovery baseline (`requirements/`:
+`HLR.md`, `LLR.md`, `TRACEABILITY.md`) covering the C++ core, the full
+Python package, and the Rust port to date — 16 high-level and 47
+low-level requirements, each traced to source, implementation, and
+verifying test(s), per the shared methodology now documented in
+`market-system-contracts`'s `docs/REQUIREMENTS_METHODOLOGY.md`. This
+recovery pass is itself where a real gap got found: the existing Python
+test suite (`tests/test_policy.py`, `tests/test_model_schema.py`) verifies
+far fewer of the system's actual behaviors than the new Rust parity suite
+does — most Python LLR rows are marked `Open` in the traceability matrix,
+honestly, rather than papered over.
+
+Continued the Python-to-Rust migration with two more crates, same
+zero-changes-to-Python/C++ discipline as the first slice:
+
+- `smart-hedge-features` — full port of `features.py` (data-quality
+  composition, missing-feature marking, volume-z-score/trend-score
+  history-and-floor guards), 33 tests.
+- `smart-hedge-store` — full port of `store.py` (canonical-JSON hashing,
+  SHA-256 content hash, tamper-detecting replay), 19 tests. Adds
+  `rusqlite` (`bundled`) as a deliberate, documented exception to the
+  dependency-minimization policy — the SQLite file format is too complex
+  and correctness-critical to safely hand-roll, the same reasoning that
+  already justified keeping `serde_json`. SHA-256 itself *is* hand-rolled
+  (`smart_hedge_models::sha256`), verified against four official NIST/
+  FIPS 180-4 test vectors including the million-character stress vector.
+
+124 tests total across the Rust workspace (was 66), all passing,
+`cargo clippy --workspace` clean. Found and fixed a third real bug this
+session: a hand-transcription typo in one SHA-256 test's own expected
+constant, caught by comparing against Python's `hashlib.sha256` directly
+rather than trusting a memorized value — the implementation itself was
+already correct on all three other independent NIST vectors.
+
 ## Unreleased (Rust migration: first slice)
 
 Started the Python-to-Rust migration in an isolated `rust/` workspace, with

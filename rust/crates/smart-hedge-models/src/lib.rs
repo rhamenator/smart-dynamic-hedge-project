@@ -12,6 +12,7 @@ pub mod features;
 pub mod policy_decision;
 pub mod quote;
 pub mod recommendation;
+pub mod sha256;
 pub mod snapshot;
 pub mod time_util;
 
@@ -23,5 +24,6 @@ pub use features::FeatureSet;
 pub use policy_decision::{AppliedLimits, PolicyDecision};
 pub use quote::Quote;
 pub use recommendation::Recommendation;
+pub use sha256::{sha256, sha256_hex};
 pub use snapshot::MarketSnapshot;
 pub use time_util::TimestampUtc;
