@@ -1,0 +1,52 @@
+{
+  "mode": "paper",
+  "provider": {
+    "kind": "synthetic",
+    "evidence_file": "data/evidence.example.json",
+    "fred": {
+      "enabled": false,
+      "series": ["VIXCLS", "DGS2", "DGS10"]
+    },
+    "rss": {
+      "enabled": false,
+      "feeds": [],
+      "max_items_per_feed": 3
+    }
+  },
+  "model": {
+    "kind": "heuristic",
+    "name": "configure-with-OPENAI_MODEL",
+    "fallback_to_heuristic": true
+  },
+  "policy": {
+    "paper_only": true,
+    "max_quote_age_seconds": 45,
+    "max_spread_bps": 35,
+    "min_data_quality": 0.65,
+    "min_model_confidence_for_band_change": 0.55,
+    "min_band_multiplier": 0.5,
+    "max_band_multiplier": 3.0,
+    "max_abs_trade_shares": 500,
+    "max_preview_notional": 50000,
+    "allow_fractional_shares": true,
+    "require_market_open_for_preview": true
+  },
+  "storage": {
+    "sqlite_path": ".smart_hedge/decisions.sqlite3"
+  },
+  "contracts": {
+    "SPY": {
+      "option_type": "put",
+      "exercise_style": "american",
+      "strike": "ATM",
+      "days_to_expiry": 30,
+      "contracts": 1,
+      "multiplier": 100,
+      "current_shares": 0,
+      "rate": 0.045,
+      "dividend_yield": 0.012,
+      "implied_volatility": 0.2,
+      "base_no_trade_band_shares": 2
+    }
+  }
+}

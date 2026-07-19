@@ -1,0 +1,27 @@
+[100%] Built target smart_dynamic_hedge
+Internal ctest changing into directory: /mnt/data/smart_dynamic_hedge/build
+Test project /mnt/data/smart_dynamic_hedge/build
+    Start 1: core_self_test
+1/1 Test #1: core_self_test ...................   Passed    0.12 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.13 sec
+test_synthetic_recommendation_is_paper_only_and_replayable (test_engine.EngineIntegrationTests.test_synthetic_recommendation_is_paper_only_and_replayable) ... /usr/lib/python3.13/random.py:547: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7ff8620f13f0>
+  u1 = random()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_extra_trade_field_rejected (test_model_schema.ModelSchemaTests.test_extra_trade_field_rejected) ... ok
+test_out_of_range_band_rejected (test_model_schema.ModelSchemaTests.test_out_of_range_band_rejected) ... ok
+test_valid_payload (test_model_schema.ModelSchemaTests.test_valid_payload) ... ok
+test_low_confidence_cannot_change_band (test_policy.PolicyTests.test_low_confidence_cannot_change_band) ... ok
+test_model_can_only_change_band_not_target (test_policy.PolicyTests.test_model_can_only_change_band_not_target) ... ok
+test_stale_quote_blocks_preview (test_policy.PolicyTests.test_stale_quote_blocks_preview) ... ok
+test_unknown_model_citation_is_blocked (test_policy.PolicyTests.test_unknown_model_citation_is_blocked) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.041s
+
+OK
+self-test: PASS
+error: ValueError: could not convert string to float: 'ATM'

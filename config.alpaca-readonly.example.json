@@ -1,0 +1,52 @@
+{
+  "mode": "paper",
+  "provider": {
+    "kind": "alpaca-readonly",
+    "alpaca": {
+      "data_base_url": "https://data.alpaca.markets",
+      "feed": "iex",
+      "bar_timeframe": "1Min",
+      "bar_limit": 180,
+      "timeout_seconds": 8
+    },
+    "evidence_file": "data/evidence.example.json",
+    "fred": {
+      "enabled": false,
+      "series": ["VIXCLS", "DGS2", "DGS10"]
+    },
+    "rss": {
+      "enabled": false,
+      "feeds": [],
+      "max_items_per_feed": 3
+    }
+  },
+  "model": {
+    "kind": "heuristic",
+    "name": "configure-with-OPENAI_MODEL",
+    "fallback_to_heuristic": true
+  },
+  "policy": {
+    "paper_only": true,
+    "max_quote_age_seconds": 45,
+    "max_spread_bps": 25,
+    "min_data_quality": 0.7,
+    "max_abs_trade_shares": 200,
+    "max_preview_notional": 25000,
+    "require_market_open_for_preview": true
+  },
+  "contracts": {
+    "SPY": {
+      "option_type": "put",
+      "exercise_style": "american",
+      "strike": "ATM",
+      "days_to_expiry": 30,
+      "contracts": 1,
+      "multiplier": 100,
+      "current_shares": 0,
+      "rate": 0.045,
+      "dividend_yield": 0.012,
+      "implied_volatility": 0.2,
+      "base_no_trade_band_shares": 2
+    }
+  }
+}

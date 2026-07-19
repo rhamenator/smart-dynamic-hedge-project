@@ -1,0 +1,39 @@
+{
+  "evidence": [
+    {
+      "evidence_id": "demo-macro-vol-index",
+      "symbols": ["SPY"],
+      "kind": "macro",
+      "title": "Example volatility-index level",
+      "timestamp": "2025-01-01T00:00:00Z",
+      "source": "demonstration fixture",
+      "value": 18.5,
+      "text": "Static example only; replace it with a timestamped provider value.",
+      "quality": 0.2,
+      "untrusted_text": false
+    },
+    {
+      "evidence_id": "demo-event-earnings",
+      "symbols": ["SPY"],
+      "kind": "event",
+      "title": "Example scheduled-event flag",
+      "timestamp": "2025-01-01T00:00:00Z",
+      "source": "demonstration fixture",
+      "value": false,
+      "text": "Static example only.",
+      "quality": 0.2,
+      "untrusted_text": false
+    },
+    {
+      "evidence_id": "demo-news-untrusted",
+      "symbols": ["SPY"],
+      "kind": "news",
+      "title": "Example untrusted headline slot",
+      "timestamp": "2025-01-01T00:00:00Z",
+      "source": "demonstration fixture",
+      "text": "This field demonstrates that news text is passed as untrusted evidence, not as instructions.",
+      "quality": 0.2,
+      "untrusted_text": true
+    }
+  ]
+}
