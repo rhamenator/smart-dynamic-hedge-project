@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased (Rust migration: first slice)
+
+Started the Python-to-Rust migration in an isolated `rust/` workspace, with
+**zero changes to any file in `python/` or `cpp/`** — strangler-fig style,
+per the plan agreed with the user: build and fully prove out the
+replacement before touching anything that currently interfaces with it.
+
+- Ported `models.py`, `config.py`, and `policy.py` in full, plus enough of
+  `core_bridge.py` to build/resolve/invoke the existing C++ binary
+  end-to-end (cross-platform: `.exe` suffix handling, Windows multi-config
+  generator fallback, `cmake`/`g++`/`clang++` toolchain discovery all
+  ported faithfully) — four crates: `smart-hedge-models`,
+  `smart-hedge-config`, `smart-hedge-policy`, `smart-hedge-core-bridge`.
+- 66 tests total, all passing, including exact transcriptions of all four
+  cases in `tests/test_policy.py` and one real integration test that builds
+  and runs the actual `cpp/smart_dynamic_hedge.cpp` binary.
+- Same dependency-minimization and testing policy as the two Rust sibling
+  repositories: only `serde`/`serde_json` as third-party dependencies,
+  `unsafe_code` forbidden workspace-wide, hand-rolled dependency-free
+  fuzz-smoke tests. Found and fixed two real bugs this way before they
+  could ship: an `Option::then_some` eager-evaluation panic in the
+  timestamp parser, and a missing `ContractConfig` field default that would
+  have broken adding a new contract symbol with partial fields.
+- Documented deliberate behavioral differences from the Python originals in
+  `rust/README.md` (no filesystem-touching path resolution, malformed core
+  responses caught at the parse boundary instead of inside the policy
+  function, a from-scratch round-half-to-even implementation matching
+  Python's `round()` instead of Rust's round-half-away-from-zero
+  `f64::round()`).
+- Nothing is connected to a real running binary yet; see `rust/README.md`
+  "Connecting it together" and `docs/ROADMAP.md` for the plan.
+
 ## Unreleased — 2026-07-19
 
 - Adopted the V2 multi-repository architecture: created and scaffolded

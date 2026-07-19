@@ -95,11 +95,20 @@ for this repository specifically:
   one testing philosophy (see `market-intelligence-mcp`'s
   `market_intelligence_core::utc_timestamp` for the "hand-roll instead of
   depending on `time`/`uuid`/`thiserror`" pattern this repo should copy).
-  This is **not started** — it is a substantial rewrite of working, tested
-  code and should happen incrementally, module by module, with the
-  existing Python test suite kept green throughout rather than as a
-  big-bang rewrite. No target date is set; it is not blocking the V2
-  multi-repository work above.
+  **Status: first slice in progress.** `models.py`, `config.py`,
+  `policy.py`, and the resolve/build/invoke parts of `core_bridge.py` are
+  ported in an isolated `rust/` workspace with zero changes to any Python
+  or C++ file — see `rust/README.md` for exact status, test counts, and
+  documented behavioral differences. `cli.py`, `dashboard.py`, `data.py`,
+  `engine.py`, `features.py`, `mcp_server.py`, `model_advisor.py`, and
+  `store.py` are not yet ported, and nothing is wired to a real running
+  binary yet — strangler-fig approach, per the user: prove each piece out
+  fully isolated, then decide the cutover shape once more exists. Current
+  direction for that cutover: a standalone Rust `smart-hedge` binary
+  (matching `market-intelligence-mcp`'s shape) that eventually replaces the
+  Python package outright, not a PyO3 embedding (which would keep a Python
+  runtime in production permanently). No target date is set; it is not
+  blocking the V2 multi-repository work above.
 * Until the migration happens, keep the existing Python/C++ code's test
   suite (`tests/test_engine.py`, `tests/test_model_schema.py`,
   `tests/test_policy.py`) as the baseline and raise its rigor

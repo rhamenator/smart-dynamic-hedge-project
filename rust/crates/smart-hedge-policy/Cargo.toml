@@ -1,0 +1,13 @@
+[package]
+name = "smart_hedge_policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+smart_hedge_models = { path = "../smart-hedge-models" }
+smart_hedge_config = { path = "../smart-hedge-config" }
+
+[lints]
+workspace = true

@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/smart-hedge-models",
+  "crates/smart-hedge-config",
+  "crates/smart-hedge-policy",
+  "crates/smart-hedge-core-bridge",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+# Same policy as market-intelligence-mcp and trade-guard-mcp: minimize
+# third-party dependencies. serde/serde_json are kept because they are the
+# cross-repo/cross-language wire format and hand-rolling JSON parsing is a
+# worse security trade-off than using the ecosystem-standard crate.
+# Timestamps, UUIDs, and error types are hand-rolled rather than pulling in
+# `time`/`uuid`/`thiserror` — see smart-hedge-models::time_util.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"

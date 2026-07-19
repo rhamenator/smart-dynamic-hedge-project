@@ -388,6 +388,10 @@ important missing pieces are a point-in-time option-chain adapter, exchange-grad
 calendar/corporate-action handling, dividend forecasts, paper fill simulation,
 portfolio-level aggregation, and a proper walk-forward backtester.
 
+A Python-to-Rust migration is also underway in an isolated `rust/` workspace
+(zero changes to `python/`/`cpp/` so far) — see [`rust/README.md`](rust/README.md)
+and `docs/ROADMAP.md` "Language and dependency policy" for status and plan.
+
 ## License
 
 This project is licensed under the GNU General Public License, version 3 (or,
