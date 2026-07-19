@@ -68,6 +68,29 @@ cannot change it at all.
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the detailed contracts.
 
+## Related repositories
+
+This repository is the strategy/research/GUI plane of a three-repository
+architecture. Two sibling repositories exist to keep credential and
+trust-boundary domains separate — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md) "V2 multi-repository expansion" for
+current status:
+
+* [`market-system-contracts`](https://github.com/rhamenator/market-system-contracts) —
+  versioned JSON Schema contracts (`TradeIntent`, `EvidenceBundle`,
+  `InstrumentId`, etc.) all three repositories share.
+* [`market-intelligence-mcp`](https://github.com/rhamenator/market-intelligence-mcp) —
+  lawful public/licensed market-intelligence collection (political
+  disclosures, insider transactions, whale/options flow, on-chain data).
+  No order-entry tools, no broker credentials, ever.
+* [`trade-guard-mcp`](https://github.com/rhamenator/trade-guard-mcp) —
+  authoritative account state, risk policy, and execution. The only
+  repository permitted to hold narrowly-scoped execution credentials, and
+  only once live mode is explicitly armed by an operator.
+
+This repository never absorbs open-web scraping or broker-credential
+responsibilities itself; those belong in the sibling repositories above.
+
 ## Included components
 
 ### Deterministic C++17 core

@@ -9,8 +9,17 @@ LEGAL_NOTICE.md and apply where stated.
 
 Research and safety intent notice:
 
-- This project is educational and research software for paper-only analysis.
+- Smart Dynamic Hedge is a multi-repository system, and brokerage,
+  exchange, clearing, and order-execution capability is a real, intended
+  part of that system. That code lives entirely in the separate
+  `trade-guard-mcp` repository, which holds its own legal notices, and is
+  armed only by explicit operator action.
+- This repository (`smart-dynamic-hedge`) is the strategy/research/GUI
+  plane only. By design it contains no broker, exchange, clearing, or
+  order-execution code itself, so those credentials and that surface never
+  share a codebase or process with this repository's model-facing and
+  evidence-ingesting components.
 - It is not investment, legal, accounting, or tax advice.
-- It is not a broker, exchange, clearing system, or order execution system.
-- Any integrations or forks that add live trading capabilities are solely the
-  responsibility of those downstream maintainers.
+- Operators who enable live trading through `trade-guard-mcp` remain solely
+  responsible for regulatory, compliance, suitability, and operational
+  decisions.

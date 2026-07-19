@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../trade-guard-mcp"
+		},
+		{
+			"path": "../market-intelligence-mcp"
+		},
+		{
+			"path": "../market-system-contracts"
+		}
+	],
+	"settings": {}
+}

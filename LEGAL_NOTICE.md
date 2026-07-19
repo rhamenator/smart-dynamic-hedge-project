@@ -30,13 +30,21 @@ GPLv3 section 7. These notices do not remove freedoms granted by GPLv3.
 - Users and deployers are solely responsible for regulatory, compliance,
   suitability, market, and operational decisions.
 
-1) Liability boundary for downstream execution systems
+1) Liability boundary for execution systems
 
-- If you combine this software with brokerage APIs, execution engines, or
-  automated order-routing systems, that combined deployment is your own
-  integration and risk domain.
+- Brokerage, exchange, and order-routing capability is a real, intended
+  part of the overall Smart Dynamic Hedge system. It is built and armed
+  exclusively in the separate `trade-guard-mcp` repository; this
+  repository contains no such code itself, by design, so that execution
+  credentials never share a codebase with this repository's model-facing
+  and evidence-ingesting components.
+- Whether execution is provided by `trade-guard-mcp` or by a third-party
+  integration, the deploying operator is solely responsible for regulatory,
+  compliance, suitability, market, and operational decisions arising from
+  that deployment.
 - Original authors and contributors are not responsible for losses,
-  compliance failures, or regulatory consequences arising from such use.
+  compliance failures, or regulatory consequences arising from any such
+  deployment.
 
 If any provision in this file is found invalid in a jurisdiction, the
 remaining provisions continue to apply to the fullest extent permitted by law.
