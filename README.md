@@ -364,3 +364,13 @@ This is a functional research scaffold, not a production hedge system. The most
 important missing pieces are a point-in-time option-chain adapter, exchange-grade
 calendar/corporate-action handling, dividend forecasts, paper fill simulation,
 portfolio-level aggregation, and a proper walk-forward backtester.
+
+## License
+
+This project is licensed under the GNU General Public License, version 3 (or,
+at your option, any later version). See [LICENSE](LICENSE).
+
+Project-specific legal notices are documented in [NOTICE](NOTICE) and
+[LEGAL_NOTICE.md](LEGAL_NOTICE.md). These include attribution preservation,
+origin-marking, trademark boundaries, and financial-research disclaimers that
+are intended to be compatible with GPLv3 section 7.
