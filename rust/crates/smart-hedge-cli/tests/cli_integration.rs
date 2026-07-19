@@ -5,8 +5,10 @@
 //! `smart-hedge-engine`'s own integration tests — only these tests have
 //! that dependency.
 
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn repo_root() -> PathBuf {
     // rust/crates/smart-hedge-cli -> repo root is 3 levels up.
@@ -84,14 +86,68 @@ fn unknown_command_exits_2() {
 }
 
 #[test]
-fn serve_and_mcp_report_not_yet_implemented_rather_than_unknown_command() {
-    let root = repo_root();
-    for cmd_name in ["serve", "mcp"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_smart-hedge")).arg(cmd_name).current_dir(&root).output().unwrap();
-        assert_eq!(output.status.code(), Some(2));
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("not yet implemented"), "stderr was: {stderr}");
-    }
+fn serve_starts_a_real_http_server_and_answers_health() {
+    let Some(h) = harness_or_skip("serve_starts_a_real_http_server_and_answers_health") else { return };
+
+    let mut child = h
+        .command(&["serve", "--host", "127.0.0.1", "--port", "0"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // The server prints "...listening on http://host:port" (flushed
+    // explicitly) as soon as it's bound and before it blocks accepting
+    // connections — read that one line to learn the OS-assigned port
+    // (`--port 0`) rather than guessing or sleeping.
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    assert!(line.contains("listening on http://127.0.0.1:"), "unexpected first line: {line:?}");
+    let port: u16 = line.trim().rsplit(':').next().unwrap().parse().expect("port should parse");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream.write_all(b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200"), "response was: {response}");
+    assert!(response.contains("\"broker_order_endpoint_present\":false"), "response was: {response}");
+
+    let _ = child.kill();
+    let _ = child.wait();
+    h.cleanup();
+}
+
+#[test]
+fn mcp_answers_initialize_and_tools_list_over_stdio() {
+    let Some(h) = harness_or_skip("mcp_answers_initialize_and_tools_list_over_stdio") else { return };
+
+    let mut child = h.command(&["mcp"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#).unwrap();
+    stdin.flush().unwrap();
+    let mut init_line = String::new();
+    reader.read_line(&mut init_line).unwrap();
+    let init_response: serde_json::Value = serde_json::from_str(&init_line).expect("stdout line should be JSON");
+    assert_eq!(init_response["result"]["serverInfo"]["name"], "smart-dynamic-hedge");
+
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","id":2,"method":"tools/list"}}"#).unwrap();
+    stdin.flush().unwrap();
+    let mut tools_line = String::new();
+    reader.read_line(&mut tools_line).unwrap();
+    let tools_response: serde_json::Value = serde_json::from_str(&tools_line).expect("stdout line should be JSON");
+    let names: Vec<&str> =
+        tools_response["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"health"));
+    assert!(names.contains(&"get_market_recommendation"));
+    assert!(!names.iter().any(|n| n.contains("order")));
+
+    drop(stdin); // closes the child's stdin, which ends its read loop
+    let _ = child.wait();
+    h.cleanup();
 }
 
 #[test]

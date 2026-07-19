@@ -193,7 +193,10 @@ fn last_day_of_month(y: i64, m: i64) -> i64 {
 /// Howard Hinnant's public-domain civil-calendar algorithm — see
 /// `market-intelligence-mcp`'s `utc_timestamp` module for the derivation
 /// and reference link; duplicated here per the module-level doc comment.
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+/// Exposed as `pub` (unlike the rest of this module's internals) since
+/// `smart-hedge-data`'s market-hours check needs the same civil-calendar
+/// math and depends on this crate already — not worth a third copy.
+pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
@@ -203,7 +206,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146097 + doe - 719468
 }
 
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
+pub fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = z - era * 146097;

@@ -14,17 +14,17 @@ pub enum EngineError {
     /// The active adviser failed and `model.fallback_to_heuristic` is
     /// false, so the failure propagates instead of falling back.
     AdvisorFailedAndFallbackDisabled(smart_hedge_model_advisor::AdvisorError),
+    /// A *configuration* problem building the adviser itself (e.g. the
+    /// OpenAI adviser missing `OPENAI_API_KEY`) — distinct from a runtime
+    /// `assess()` failure, which `AdvisorFailedAndFallbackDisabled` /
+    /// `model.fallback_to_heuristic` covers instead. This always fails
+    /// construction outright; there is no fallback for "the config names
+    /// an adviser that can't even be built."
+    AdvisorConstructionFailed(smart_hedge_model_advisor::AdvisorError),
     /// `replay`/similar looked up a decision ID that doesn't exist.
     DecisionNotFound(String),
     UnknownProviderKind(String),
     UnknownAdvisorKind(String),
-    /// The config names a real, recognized provider/adviser kind that
-    /// simply hasn't been ported to Rust yet (Alpaca, FRED, RSS, OpenAI) —
-    /// deliberately distinct from `UnknownProviderKind`/`UnknownAdvisorKind`,
-    /// which mean the kind isn't recognized at all. Silently falling back
-    /// to the synthetic/heuristic path instead of erroring here would
-    /// misrepresent what's actually running.
-    NotYetPorted(String),
 }
 
 impl fmt::Display for EngineError {
@@ -39,13 +39,10 @@ impl fmt::Display for EngineError {
             Self::Data(e) => write!(f, "{e}"),
             Self::Store(e) => write!(f, "{e}"),
             Self::AdvisorFailedAndFallbackDisabled(e) => write!(f, "adviser failed and fallback is disabled: {e}"),
+            Self::AdvisorConstructionFailed(e) => write!(f, "failed to construct the configured adviser: {e}"),
             Self::DecisionNotFound(id) => write!(f, "decision not found: {id}"),
             Self::UnknownProviderKind(k) => write!(f, "unknown provider kind: {k}"),
             Self::UnknownAdvisorKind(k) => write!(f, "unknown model adviser kind: {k}"),
-            Self::NotYetPorted(k) => write!(
-                f,
-                "{k} is not yet ported to Rust (needs an HTTP-client dependency decision) — see requirements/LLR.md SDH-LLR-126"
-            ),
         }
     }
 }

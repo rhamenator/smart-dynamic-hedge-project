@@ -27,5 +27,5 @@ pub use quote::Quote;
 pub use recommendation::Recommendation;
 pub use sha256::{sha256, sha256_hex};
 pub use snapshot::MarketSnapshot;
-pub use time_util::TimestampUtc;
+pub use time_util::{civil_from_days, days_from_civil, TimestampUtc};
 pub use unique_id::new_unique_id;

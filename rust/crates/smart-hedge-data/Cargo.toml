@@ -9,6 +9,16 @@ publish.workspace = true
 serde_json = { workspace = true }
 smart_hedge_models = { path = "../smart-hedge-models" }
 smart_hedge_config = { path = "../smart-hedge-config" }
+# Deliberate, documented exception to "hand-roll instead of depend" (same
+# reasoning as smart-hedge-store's rusqlite): the Alpaca/FRED/RSS providers
+# need real HTTPS calls to third-party hosts, and hand-rolling TLS is a
+# security non-starter — this is a crypto-critical, adversarial-input
+# surface, not a small well-specified one. `ureq` is a small, synchronous
+# HTTP client (no async runtime needed for our sequential request-per-call
+# usage) built on `rustls`, a memory-safe pure-Rust TLS implementation —
+# no system OpenSSL dependency, which matters for the multiplatform
+# requirement. Scoped to this crate only, not the whole workspace.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 [lints]
 workspace = true

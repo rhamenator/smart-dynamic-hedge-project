@@ -18,7 +18,13 @@ This pass covers the code that exists in this repository today:
 
 - the C++ deterministic core (`cpp/smart_dynamic_hedge.cpp`);
 - the full Python package (`python/smart_hedge/`);
-- the Rust port completed so far (`rust/crates/smart-hedge-{models,config,policy,core-bridge}`).
+- the Rust port, which as of this pass covers the entire Python package's
+  observable behavior (`rust/crates/smart-hedge-{models,config,policy,
+  core-bridge,features,store,model-advisor,data,engine,cli,dashboard,mcp}`)
+  — see `rust/README.md` for per-crate status and what's still open
+  (mainly: direct tests for `SDH-LLR-031`/`-034`, and the live-network
+  paths of the Alpaca/FRED/RSS/OpenAI integrations, which automated tests
+  cannot exercise without real credentials).
 
 It does **not** yet cover `market-intelligence-mcp` or `trade-guard-mcp` —
 those repositories have not had a recovery pass. It also does not cover

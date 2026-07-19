@@ -1,21 +1,14 @@
 [package]
-name = "smart_hedge_cli"
+name = "smart_hedge_dashboard"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[[bin]]
-name = "smart-hedge"
-path = "src/main.rs"
-
 [dependencies]
 serde_json = { workspace = true }
 smart_hedge_config = { path = "../smart-hedge-config" }
-smart_hedge_core_bridge = { path = "../smart-hedge-core-bridge" }
-smart_hedge_dashboard = { path = "../smart-hedge-dashboard" }
 smart_hedge_engine = { path = "../smart-hedge-engine" }
-smart_hedge_mcp = { path = "../smart-hedge-mcp" }
 
 [lints]
 workspace = true

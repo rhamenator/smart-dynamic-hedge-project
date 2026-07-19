@@ -11,6 +11,8 @@ members = [
   "crates/smart-hedge-data",
   "crates/smart-hedge-engine",
   "crates/smart-hedge-cli",
+  "crates/smart-hedge-dashboard",
+  "crates/smart-hedge-mcp",
 ]
 
 [workspace.package]

@@ -2,8 +2,13 @@ use smart_hedge_models::MarketSnapshot;
 
 use crate::error::DataError;
 
-/// Port of the `MarketDataProvider` `Protocol` in `data.py`.
-pub trait MarketDataProvider {
+/// Port of the `MarketDataProvider` `Protocol` in `data.py`. `Send + Sync`
+/// so `Box<dyn MarketDataProvider>` (and, transitively, `SmartHedgeEngine`)
+/// can be shared across the dashboard's per-connection threads via a plain
+/// `Arc` — every current implementor (`SyntheticProvider`,
+/// `AlpacaReadOnlyProvider`) already satisfies this automatically, since
+/// neither holds anything but owned, non-`Rc`/non-interior-mutable data.
+pub trait MarketDataProvider: Send + Sync {
     fn snapshot(&self, symbol: &str) -> Result<MarketSnapshot, DataError>;
 
     /// A short, stable name for this provider implementation — used by

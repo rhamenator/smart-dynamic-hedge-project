@@ -1,32 +1,27 @@
 use smart_hedge_config::LoadedConfig;
-use smart_hedge_data::{MarketDataProvider, SyntheticProvider};
-use smart_hedge_model_advisor::{Advisor, HeuristicAdvisor};
+use smart_hedge_data::{AlpacaReadOnlyProvider, MarketDataProvider, SyntheticProvider};
+use smart_hedge_model_advisor::{Advisor, HeuristicAdvisor, OpenAIAdvisor};
 
 use crate::error::EngineError;
 
-/// Port of `data.build_provider`. Recognized-but-unported kinds
-/// (`alpaca`/`alpaca-readonly`) return `EngineError::NotYetPorted`, not a
-/// silent fallback to the synthetic provider.
+/// Port of `data.build_provider`.
 pub fn build_provider(loaded: &LoadedConfig) -> Result<Box<dyn MarketDataProvider>, EngineError> {
     match loaded.config.provider.kind.to_lowercase().as_str() {
         "synthetic" => Ok(Box::new(SyntheticProvider::new(loaded.clone()))),
         "alpaca" | "alpaca-readonly" | "alpaca_readonly" => {
-            Err(EngineError::NotYetPorted("the Alpaca read-only provider".to_string()))
+            Ok(Box::new(AlpacaReadOnlyProvider::from_env(loaded.clone())?))
         }
         other => Err(EngineError::UnknownProviderKind(other.to_string())),
     }
 }
 
-/// Port of `model_advisor.build_advisor`. `openai`/`responses` returns
-/// `EngineError::NotYetPorted`, not a silent fallback to the heuristic
-/// adviser — the whole point of `model.fallback_to_heuristic` is that
-/// *runtime* adviser failures fall back visibly (`fallback_reason`
-/// recorded); a *configuration* naming an unported adviser is a different
-/// kind of problem and should fail at construction time instead.
+/// Port of `model_advisor.build_advisor`.
 pub fn build_advisor(loaded: &LoadedConfig) -> Result<Box<dyn Advisor>, EngineError> {
     match loaded.config.model.kind.to_lowercase().as_str() {
         "heuristic" | "none" | "local" => Ok(Box::new(HeuristicAdvisor)),
-        "openai" | "responses" => Err(EngineError::NotYetPorted("the OpenAI adviser".to_string())),
+        "openai" | "responses" => Ok(Box::new(
+            OpenAIAdvisor::from_env(loaded).map_err(EngineError::AdvisorConstructionFailed)?,
+        )),
         other => Err(EngineError::UnknownAdvisorKind(other.to_string())),
     }
 }
@@ -63,15 +58,19 @@ mod tests {
         assert_eq!(provider.name(), "SyntheticProvider");
     }
 
+    /// Without `ALPACA_API_KEY_ID`/`ALPACA_API_SECRET_KEY` set in the test
+    /// environment, building an Alpaca provider fails fast with a specific
+    /// missing-credentials error rather than silently falling back to
+    /// another provider or panicking.
     #[test]
-    fn alpaca_provider_kind_reports_not_yet_ported_not_a_silent_fallback() {
+    fn alpaca_provider_kind_without_credentials_fails_fast() {
         let loaded = config_with_provider_kind("alpaca-readonly");
         let result = build_provider(&loaded);
-        assert!(matches!(result, Err(EngineError::NotYetPorted(_))));
+        assert!(matches!(result, Err(EngineError::Data(_))));
     }
 
     #[test]
-    fn unrecognized_provider_kind_is_a_distinct_error_from_not_yet_ported() {
+    fn unrecognized_provider_kind_is_a_distinct_error_from_a_known_but_misconfigured_one() {
         let loaded = config_with_provider_kind("totally-made-up");
         let result = build_provider(&loaded);
         assert!(matches!(result, Err(EngineError::UnknownProviderKind(_))));
@@ -84,10 +83,14 @@ mod tests {
         assert_eq!(advisor.name(), "HeuristicAdvisor");
     }
 
+    /// Without `OPENAI_API_KEY`/a real `model.name` set in the test
+    /// environment, building an OpenAI adviser fails fast at construction
+    /// time with a specific error rather than panicking or silently
+    /// falling back to the heuristic adviser.
     #[test]
-    fn openai_advisor_kind_reports_not_yet_ported() {
+    fn openai_advisor_kind_without_configuration_fails_fast() {
         let loaded = config_with_model_kind("openai");
         let result = build_advisor(&loaded);
-        assert!(matches!(result, Err(EngineError::NotYetPorted(_))));
+        assert!(matches!(result, Err(EngineError::AdvisorConstructionFailed(_))));
     }
 }

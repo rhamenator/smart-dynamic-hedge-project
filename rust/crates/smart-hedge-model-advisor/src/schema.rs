@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use smart_hedge_models::ModelAssessment;
 
 use crate::error::SchemaError;
@@ -47,6 +47,36 @@ fn string_list(value: &Value, field: &str, max_items: usize, item_max: usize) ->
                 .ok_or_else(|| SchemaError::ListItemNotAString { field: field.to_string() })
         })
         .collect()
+}
+
+/// Port of `ASSESSMENT_SCHEMA`: the JSON Schema sent to `OpenAIAdvisor`'s
+/// structured-output request, built from the same `ALLOWED_REGIMES`/
+/// `REQUIRED_KEYS` this module already validates against — one source of
+/// truth for the schema, not two definitions that could drift apart.
+pub fn assessment_json_schema() -> Value {
+    let mut sorted_regimes = ALLOWED_REGIMES.to_vec();
+    sorted_regimes.sort_unstable();
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": REQUIRED_KEYS,
+        "properties": {
+            "regime": {"type": "string", "enum": sorted_regimes},
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "hedge_urgency": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "band_multiplier": {"type": "number", "minimum": 0.5, "maximum": 3.0},
+            "summary": {"type": "string", "maxLength": 1000},
+            "evidence_ids": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 160}},
+            "risks": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 240}},
+            "scenario_spot_shocks": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 7,
+                "items": {"type": "number", "minimum": -0.30, "maximum": 0.30}
+            },
+            "data_requests": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 240}},
+        }
+    })
 }
 
 /// Port of `validate_assessment_payload`.
@@ -242,6 +272,24 @@ mod tests {
         payload["summary"] = json!("x".repeat(1001));
         let result = validate_assessment_payload(&payload, "test", "test", "");
         assert!(matches!(result, Err(SchemaError::SummaryInvalid)));
+    }
+
+    #[test]
+    fn assessment_json_schema_lists_regimes_alphabetically() {
+        let schema = assessment_json_schema();
+        let regimes = schema["properties"]["regime"]["enum"].as_array().unwrap();
+        let names: Vec<&str> = regimes.iter().map(|v| v.as_str().unwrap()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names, sorted);
+        assert_eq!(names.len(), ALLOWED_REGIMES.len());
+    }
+
+    #[test]
+    fn assessment_json_schema_required_matches_the_validator_required_keys() {
+        let schema = assessment_json_schema();
+        let required: Vec<&str> = schema["required"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(required, REQUIRED_KEYS);
     }
 
     #[test]

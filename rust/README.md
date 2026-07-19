@@ -1,12 +1,16 @@
 # rust/
 
-Isolated Rust workspace: the first slice of the Python-to-Rust migration
-described in `../docs/ROADMAP.md` "Language and dependency policy". Built
-with **zero changes to any existing Python or C++ file** — the strangler-fig
-pattern the user asked for: prove the Rust side out fully in isolation,
-then connect it to the CLI/dashboard/MCP entry points in a later phase.
+Isolated Rust workspace: the Python-to-Rust migration described in
+`../docs/ROADMAP.md` "Language and dependency policy". Built with **zero
+changes to any existing Python or C++ file** — the strangler-fig pattern
+the user asked for: prove the Rust side out fully in isolation before
+deciding the cutover shape.
 
 ## Status
+
+Every module in `python/smart_hedge/` now has a Rust port — the migration
+is functionally complete; **cutover from Python is still a separate,
+undecided step** (see "Connecting it together" below).
 
 | Crate | Ports | Status |
 |---|---|---|
@@ -16,25 +20,21 @@ then connect it to the CLI/dashboard/MCP entry points in a later phase.
 | `smart-hedge-core-bridge` | `python/smart_hedge/core_bridge.py` | fixture-tested + one real integration test — 7 tests, including one that actually builds and runs the real `cpp/smart_dynamic_hedge.cpp` binary end to end when a toolchain is available (skips gracefully otherwise) |
 | `smart-hedge-features` | `python/smart_hedge/features.py` | fixture-tested — 33 tests covering data-quality composition, missing-feature marking, the volume-z-score/trend-score history-and-floor guards |
 | `smart-hedge-store` | `python/smart_hedge/store.py` | fixture-tested — 20 tests, including one that directly corrupts a stored row via raw SQL and confirms replay detects the tamper |
-| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema + `HeuristicAdvisor`; `OpenAIAdvisor` deferred) | fixture-tested — 25 tests, including exact transcriptions of `tests/test_model_schema.py`'s cases |
-| `smart-hedge-data` | `python/smart_hedge/data.py` (`SyntheticProvider` + evidence-file loading; Alpaca/FRED/RSS deferred) | fixture-tested — 28 tests, including determinism tests across 5-second seed buckets |
+| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema, `HeuristicAdvisor`, `OpenAIAdvisor`) | fixture-tested — 39 tests, including exact transcriptions of `tests/test_model_schema.py`'s cases and pure-logic coverage of the OpenAI request/response shaping (the live API call itself isn't exercised by automated tests — see `SDH-LLR-056`) |
+| `smart-hedge-data` | `python/smart_hedge/data.py` (`SyntheticProvider`, `AlpacaReadOnlyProvider`, evidence-file/FRED/RSS loading) | fixture-tested — 86 tests, including a hand-rolled, DTD/entity-free RSS/Atom XML extractor tested against CDATA, XML entities, and a deliberate XXE-attempt fixture that proves the entity is never expanded |
 | `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end integration tests — 25 tests, including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, and both branches of the adviser-failure/fallback path via a deliberately-failing `Advisor` stub |
-| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`; `serve`/`mcp` recognized but not yet implemented) | fixture-tested + real subprocess integration tests — 31 tests (23 unit + 8 integration), the integration tests shelling out to the actual compiled `smart-hedge` binary |
+| `smart-hedge-dashboard` | `python/smart_hedge/dashboard.py` | fixture-tested + real end-to-end integration tests — 32 tests, including 8 that bind a real ephemeral TCP port, run the real accept loop, and make real HTTP requests against it |
+| `smart-hedge-mcp` | `python/smart_hedge/mcp_server.py` | fixture-tested — 19 tests covering the JSON-RPC 2.0 envelope, all six tools, and the MCP-specific "tool failure is an `isError` result, not a protocol error" distinction |
+| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand) | fixture-tested + real subprocess integration tests — 35 tests (26 unit + 9 integration), including spawning the real binary as `serve` and making a real HTTP request against it, and spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio |
 
-Not yet ported: `dashboard.py`, `mcp_server.py`, and the network-backed
-providers/adviser (`AlpacaReadOnlyProvider`, FRED/RSS evidence,
-`OpenAIAdvisor`) — each needs its own HTTP-client (or MCP-protocol)
-dependency decision, deliberately deferred rather than silently stubbed
-(see `SDH-LLR-126`, `-056`, `-081`, `-082` in `../requirements/LLR.md`).
-
-**The zero-cost path — synthetic data + heuristic adviser + deterministic
-core + policy gate + decision store — is now a fully working, independently
+**The full CLI surface — including `serve` (a real HTTP dashboard) and
+`mcp` (a real MCP stdio server) — is now a fully working, independently
 runnable Rust program** (`cargo run -p smart_hedge_cli --bin smart-hedge --
-once`), not just a set of tested libraries. It is not yet the program a user
-actually runs (`python/smart_hedge/cli.py` still is); cutover is a distinct,
-later decision.
+once`), not just a set of tested libraries. It is not yet the program a
+user actually runs (`python/smart_hedge/cli.py` still is); cutover is a
+distinct, later decision.
 
-**Total: 246 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 373 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
 
 ## Requirements traceability
@@ -55,13 +55,29 @@ crate forbids `unsafe_code` and warns on `clippy::all`
 (`[workspace.lints]`), and testing favors hand-rolled, dependency-free
 boundary/fuzz-smoke tests over pulling in `proptest`/`cargo-fuzz`.
 
-`smart-hedge-store` adds one more: `rusqlite` (`bundled` feature). The
-SQLite file format (WAL, B-tree pages, journal recovery) is exactly the
-kind of complex, correctness-critical format that's a *worse* trade-off to
-hand-roll than to depend on — the same reasoning as `serde_json`, applied
-to a much bigger surface. SHA-256, by contrast, *is* hand-rolled
-(`smart_hedge_models::sha256`) since it's small, completely specified, and
-has official NIST test vectors to verify against — see that module.
+Two more crates add documented exceptions, same "worse trade-off to
+hand-roll than to depend on" reasoning:
+
+- `smart-hedge-store`: `rusqlite` (`bundled` feature). The SQLite file
+  format (WAL, B-tree pages, journal recovery) is exactly the kind of
+  complex, correctness-critical format that's a *worse* trade-off to
+  hand-roll than to depend on.
+- `smart-hedge-data` and `smart-hedge-model-advisor`: `ureq` (on `rustls`,
+  a memory-safe pure-Rust TLS implementation — no system OpenSSL
+  dependency). The Alpaca/FRED/OpenAI HTTP **clients** need real HTTPS
+  calls to third-party hosts; hand-rolling TLS is a security non-starter.
+  Scoped only to these two crates, not the whole workspace.
+
+Notably, the dashboard's HTTP **server** and the MCP JSON-RPC **stdio**
+server (`smart-hedge-dashboard`, `smart-hedge-mcp`) add **no** new
+dependency at all, despite superficially looking like the same kind of
+problem as the HTTP clients — see "Known, documented behavioral
+differences from Python" below for why hand-rolling those specifically is
+the safer choice, not a shortcut.
+
+SHA-256, by contrast, *is* hand-rolled (`smart_hedge_models::sha256`)
+since it's small, completely specified, and has official NIST test
+vectors to verify against — see that module.
 
 This pass already found and fixed several real bugs purely from writing the
 tests, none of which the Python original had to worry about (being
@@ -108,8 +124,29 @@ test happened to construct a float in the specific shape that triggers it.
   `round()` is round-half-to-even; Rust's `f64::round()` is round-half-
   away-from-zero, and share counts routinely land exactly on a half-share
   boundary since `0.5` is exactly representable in binary).
+- **RSS/Atom feed parsing is a hand-rolled, narrowly-scoped XML text
+  extractor** (`smart_hedge_data::rss_xml`), not `xml.etree.ElementTree`
+  or a general-purpose Rust XML crate. It only extracts the text of a
+  handful of named leaf elements inside `<item>`/`<entry>` blocks, and it
+  never parses `<!DOCTYPE ...>` internal subsets or `<!ENTITY ...>`
+  declarations at all — it skips over them as opaque bytes. That omission
+  is what actually prevents XXE (external entity expansion): there is no
+  code path that could ever resolve an external entity, because entity
+  declarations are never inspected in the first place. A general XML
+  library with DTD/entity support would need to be explicitly configured
+  to disable it to get the same guarantee; this parser gets it for free,
+  by construction. Verified directly by a test that feeds it a
+  `<!DOCTYPE>` declaring `<!ENTITY xxe SYSTEM "file:///etc/passwd">` and
+  confirms the literal text `&xxe;` passes through undecoded.
+- **The dashboard's HTTP server and the MCP server's stdio transport are
+  both hand-rolled**, with no HTTP/JSON-RPC framework dependency — safe to
+  do specifically because neither needs TLS (both are local-only, matching
+  Python's own `uvicorn` dashboard default and MCP's stdio-only transport)
+  and both only ever parse messages whose shape this process itself
+  defines, unlike the *client* side (`ureq`/`rustls`), which parses
+  arbitrary third-party HTTPS responses and genuinely needs a dependency.
 
-## Connecting it together (in progress)
+## Connecting it together (ported, not yet cut over)
 
 Per the plan agreed with the user: prove out each ported component fully
 isolated first, then decide the cutover shape once more of the system
@@ -119,14 +156,15 @@ replaces the Python package outright, not a PyO3 embedding — the latter
 would keep a Python runtime in production permanently, which contradicts
 the goal of getting away from Python.
 
-`smart-hedge-cli` is the first slice of that binary: `build-core`, `once`,
-`loop`, `replay`, `recent`, and `self-test` are real, working subcommands
-against the synthetic-data/heuristic-adviser path. `serve` and `mcp` are
-recognized but exit with an explicit "not yet implemented" error rather
-than silently doing nothing — they need the dashboard/MCP-server ports
-first, which in turn need HTTP-server and MCP-protocol dependency
-decisions not yet made. The Python CLI (`python -m smart_hedge.cli`)
-remains the one actually in use; nothing has cut over.
+`smart-hedge-cli` is that binary, and every subcommand `cli.py` has is now
+implemented: `build-core`, `once`, `loop`, `replay`, `recent`, `self-test`,
+`serve` (a real HTTP dashboard, hand-rolled server), and `mcp` (a real MCP
+stdio server, hand-rolled JSON-RPC). The network-backed providers/adviser
+(Alpaca, FRED, RSS, OpenAI) are implemented against real HTTPS endpoints
+via `ureq`/`rustls`. Nothing here has been benchmarked or run under real
+production load, and the Python CLI (`python -m smart_hedge.cli`) remains
+the one actually in use — cutover is a distinct, deliberate future
+decision, not something this pass makes unilaterally.
 
 ## Building and testing
 

@@ -7,7 +7,9 @@ use crate::error::AdvisorError;
 /// Python's `HeuristicAdvisor`, which never raises) so
 /// `smart-hedge-engine`'s fallback-on-failure logic can be built and
 /// tested against this trait now — see `error::AdvisorError`.
-pub trait Advisor {
+/// `Send + Sync` for the same reason as
+/// `smart_hedge_data::MarketDataProvider` — see that trait's doc comment.
+pub trait Advisor: Send + Sync {
     fn assess(
         &self,
         snapshot: &MarketSnapshot,

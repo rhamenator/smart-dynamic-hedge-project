@@ -457,11 +457,17 @@ Statement: Constructing `OpenAIAdvisor` shall raise immediately (not on
 first use) if no usable model name is configured or if
 `OPENAI_API_KEY` is not set.
 Source: `python/smart_hedge/model_advisor.py:214-222`.
-Verification: Test. Status: Implemented (Python only). **Open**: no test
-constructs `OpenAIAdvisor` and asserts the immediate failure (would
-require monkeypatching `openai` or running without network — reasonable
-to add without needing a real API key, since the check happens before
-any request).
+Verification: Test. Status: Implemented.
+Implementation: Python `OpenAIAdvisor.__init__`; Rust
+`smart_hedge_model_advisor::openai::OpenAIAdvisor::new` (takes credentials
+as explicit parameters rather than reading `std::env` directly, so the
+immediate-failure check is testable without a real API key or network —
+see that module's doc comment).
+Verifying tests: Rust `openai::tests::the_packaged_default_model_name_placeholder_is_rejected`,
+`openai::tests::missing_api_key_is_rejected`,
+`openai::tests::an_empty_configured_name_with_no_env_fallback_is_rejected`.
+Python: **Open** (would require monkeypatching `openai` or running without
+network).
 
 ### SDH-LLR-057 — Fallback-to-heuristic is configuration-gated
 Statement: When the active adviser raises, the engine shall fall back to
@@ -606,7 +612,15 @@ the Alpaca market-data host and only for quote/bar GET endpoints; it
 shall hold no code path capable of constructing an order-placement
 request.
 Source: `python/smart_hedge/data.py:123-211`.
-Verification: Inspection. Status: Implemented (Python only).
+Verification: Inspection. Status: Implemented.
+Implementation: Python `AlpacaReadOnlyProvider`; Rust
+`smart_hedge_data::alpaca::AlpacaReadOnlyProvider` (`get` is a private
+method used only for the two documented quote/bar GET paths; there is no
+POST/PUT/DELETE call anywhere in this module).
+Verifying tests: Rust `alpaca::tests::*` cover the request-shaping logic
+directly (`parse_bars`, `build_quote`); the "no order-capable code path"
+guarantee itself is structural, verified by inspection in both languages,
+the same as `SDH-LLR-080`.
 
 ### SDH-LLR-082 — MCP tool set contains no order-capable tool
 Statement: The MCP server shall expose exactly `health`,
@@ -615,10 +629,15 @@ Statement: The MCP server shall expose exactly `health`,
 equivalent to `place_order`/`submit_order`/`cancel_order`/credential
 management.
 Source: `python/smart_hedge/mcp_server.py:36-96`; `README.md` "MCP tools".
-Verification: Test, Inspection. Status: Implemented (Python only, not yet
-ported). **Open**: no test enumerates the tool list and asserts its exact
-membership (would need to introspect the `FastMCP` server's registered
-tools).
+Verification: Test, Inspection. Status: Implemented.
+Implementation: Python `create_server`; Rust
+`smart_hedge_mcp::protocol::tool_definitions`.
+Verifying tests: Rust `protocol::tests::tools_list_returns_exactly_the_six_expected_tools_and_no_order_tool`
+(enumerates the real `tools/list` response and asserts both the exact
+membership and the absence of `place_order`/`submit_order`/`cancel_order`);
+`tests/cli_integration.rs::mcp_answers_initialize_and_tools_list_over_stdio`
+(same assertion end-to-end over a real stdio subprocess). Python: **Open**
+— no test introspects `FastMCP`'s registered tools.
 
 ### SDH-LLR-090 — Dashboard/MCP default to localhost/stdio
 Statement: The dashboard shall default to host `127.0.0.1` port `8765`;
@@ -769,6 +788,23 @@ Source: conversation, 2026-07-19.
 Verification: Inspection. Status: Open (deferred by design — see
 `rust/README.md` "Known scope: deferred network providers").
 
+**Correction (2026-07-19, later the same day): no longer deferred.** The
+HTTP-client dependency decision this entry called for has been made and
+implemented: `ureq` (built on `rustls`, a pure-Rust TLS implementation) —
+a documented exception to "hand-roll instead of depend," same reasoning as
+`smart-hedge-store`'s `rusqlite`, scoped only to `smart-hedge-data` and
+`smart-hedge-model-advisor` (see those crates' `Cargo.toml`). All three
+providers this entry names are now implemented and tested:
+`AlpacaReadOnlyProvider` (`SDH-LLR-081`), FRED evidence, and RSS evidence
+(the last via a hand-rolled, narrowly-scoped, DTD/entity-free XML
+extractor — `smart_hedge_data::rss_xml` — chosen specifically *because* it
+eliminates the XXE attack surface by never implementing entity expansion
+at all, not despite the "prefer depending on complex parsers" rule but as
+an application of the same reasoning that rule serves). `OpenAIAdvisor`
+(`SDH-LLR-056`) uses the same `ureq` dependency. This entry is kept,
+uncorrected in its original text, per the methodology's requirement that
+corrections be recorded, not silently rewritten.
+
 ## Orchestration (traces to SDH-HLR-020, SDH-HLR-040, SDH-HLR-060, SDH-HLR-100, SDH-HLR-110)
 
 ### SDH-LLR-130 — Contract type fields are validated, not merely typed
@@ -871,20 +907,26 @@ Verifying tests: Rust `args::tests::once_rejects_an_unknown_flag`,
 `tests/cli_integration.rs::an_unrecognized_flag_exits_2_before_touching_the_network_or_store`.
 Python: **Open** (covered only by `argparse`'s own untested-here defaults).
 
-### SDH-LLR-141 — `serve`/`mcp` are recognized but explicitly not-yet-implemented
-Statement: The Rust CLI shall recognize `serve` and `mcp` as valid
-subcommands (not report "unknown command") but exit with a specific
-"not yet implemented" error, distinguishing a deliberately deferred
-dependency decision (SDH-LLR-126) from a typo or a genuinely unsupported
-command.
-Source: conversation, 2026-07-19 (staged Rust migration scope);
-`python/smart_hedge/cli.py` `cmd_serve`/`cmd_mcp` (Python actually
-implements both, via `uvicorn`/`mcp_server.py` — the Rust CLI does not yet).
-Verification: Test. Status: Implemented (Rust only — this specific
-recognized-but-deferred distinction doesn't apply to Python, which has no
-gap here).
-Verifying tests: Rust `args::tests::serve_and_mcp_parse_but_are_handled_as_not_yet_ported_by_the_caller`,
-`tests/cli_integration.rs::serve_and_mcp_report_not_yet_implemented_rather_than_unknown_command`.
+### SDH-LLR-141 — `serve`/`mcp` launch the real dashboard/MCP server
+Statement: The Rust CLI's `serve` subcommand shall bind and run the real
+HTTP dashboard (`--host`/`--port` overriding the configured
+`dashboard.host`/`dashboard.port`), and `mcp` shall run the real MCP
+stdio server — matching Python's `cmd_serve`/`cmd_mcp`.
+Source: `python/smart_hedge/cli.py` `cmd_serve`/`cmd_mcp`.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_cli::commands::cmd_serve`/`cmd_mcp`.
+Verifying tests: Rust `tests/cli_integration.rs::serve_starts_a_real_http_server_and_answers_health`
+(spawns the real binary, reads its "listening on" line to learn the
+OS-assigned `--port 0` port, makes a real TCP request against it);
+`tests/cli_integration.rs::mcp_answers_initialize_and_tools_list_over_stdio`
+(spawns the real binary, drives a real `initialize`/`tools/list` exchange
+over its stdin/stdout).
+
+**Correction (2026-07-19, later the same day):** an earlier version of
+this entry described `serve`/`mcp` as recognized-but-not-yet-implemented,
+pending the HTTP-server/MCP-protocol decisions `SDH-LLR-126` called for.
+Both are now implemented — see `SDH-LLR-150` through `-156` below for the
+dashboard/MCP requirements themselves.
 
 ### SDH-LLR-142 — `self-test` validates paper-only and hash-integrity invariants end-to-end
 Statement: The `self-test` command shall build/verify the deterministic
@@ -917,6 +959,123 @@ Status: **Open** — no automated test exercises the loop's actual sleep
 timing in either language (would require killing a long-running process
 mid-loop); the Rust logic is a direct one-line mirror of Python's
 `max(1.0, ...)`.
+
+## Dashboard and MCP server (traces to SDH-HLR-020, SDH-HLR-060, SDH-HLR-140, SDH-HLR-150)
+
+### SDH-LLR-150 — Dashboard binds to localhost by default, overridable per-call
+Statement: The dashboard shall bind to `dashboard.host`/`dashboard.port`
+(default `127.0.0.1:8765`) unless the CLI's `--host`/`--port` flags
+override them.
+Source: `python/smart_hedge/dashboard.py` `create_app`;
+`python/smart_hedge/config.py` (`dashboard` defaults);
+`python/smart_hedge/cli.py` `cmd_serve`.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_dashboard::server::serve`. The server
+itself is a hand-rolled minimal HTTP/1.1 implementation
+(`smart_hedge_dashboard::http`) rather than a dependency — safe to
+hand-roll specifically *because* it never needs TLS (localhost, matching
+Python's own `uvicorn` default) and only ever parses requests this
+process itself defines the shape of, unlike the *client* side
+(`ureq`/`rustls` in `smart-hedge-data`), which parses arbitrary
+third-party HTTPS responses and must not be hand-rolled.
+Verifying tests: Rust `smart_hedge_dashboard`'s `integration_tests::*` (8
+tests binding a real ephemeral port and making real TCP requests);
+`smart_hedge_cli` `tests/cli_integration.rs::serve_starts_a_real_http_server_and_answers_health`.
+
+### SDH-LLR-151 — Dashboard exposes exactly the documented read-only routes
+Statement: The dashboard shall expose `GET /`, `/api/health`,
+`/api/recommendation`, `/api/history`, `/api/replay/{decision_id}` — no
+route accepts a non-`GET` method or mutates state; a non-`GET` request or
+an unrecognized path is rejected (`405`/`404`), not silently ignored.
+Source: `python/smart_hedge/dashboard.py` `create_app`'s route
+registrations.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_dashboard::routes::handle`.
+Verifying tests: Rust `integration_tests::an_unknown_route_returns_404`,
+`integration_tests::a_non_get_method_returns_405`,
+`integration_tests::index_page_returns_the_html_console`.
+
+### SDH-LLR-152 — Recommendation caching honors the `fresh=true` bypass and TTL
+Statement: `/api/recommendation` shall serve a cached value for the same
+symbol within `dashboard.cache_seconds` unless `fresh=true` is given, in
+which case it always recomputes and refreshes the cache.
+Source: `python/smart_hedge/dashboard.py` `_Cache`, `recommendation` endpoint.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_dashboard::cache::Cache`.
+Verifying tests: Rust `cache::tests::a_fresh_entry_is_returned`,
+`cache::tests::an_entry_older_than_the_ttl_is_not_returned`,
+`integration_tests::recommendation_endpoint_returns_a_paper_only_decision`
+(exercises the real endpoint with `fresh=true`).
+
+### SDH-LLR-153 — Invalid symbol query parameters are rejected with `422`
+Statement: The `symbol` query parameter to `/api/recommendation` and
+`/api/history` shall be validated as 1-12 characters of
+`[A-Za-z0-9._-]`, matching FastAPI's `Query(..., min_length=1,
+max_length=12, pattern=...)` constraint — a violation returns `422`
+before the engine is ever called, rather than passing through and
+failing some other way downstream.
+Source: `python/smart_hedge/dashboard.py` (`Query` parameter definitions).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_dashboard::routes::valid_symbol`.
+Verifying tests: Rust `routes::tests::valid_symbol_rejects_empty_and_overlong_and_bad_characters`,
+`integration_tests::an_invalid_symbol_is_rejected_with_422`.
+
+### SDH-LLR-154 — Replay-not-found maps to `404`, not a generic failure
+Statement: `/api/replay/{decision_id}` for an unknown ID shall return
+`404` with a detail message, matching Python's `except KeyError:
+raise HTTPException(status_code=404, ...)`; any other replay failure
+returns `500` (Python's default for an unhandled exception), never a
+misleading `200`.
+Source: `python/smart_hedge/dashboard.py` `replay` endpoint.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_dashboard::routes::route_replay`.
+Verifying tests: Rust `integration_tests::replay_of_an_unknown_decision_returns_404`.
+
+### SDH-LLR-155 — MCP tool failures are `isError` results, not JSON-RPC protocol errors
+Statement: A `tools/call` failure — an unknown tool name, a missing
+required argument, or an underlying engine error — shall be reported as
+a normal MCP result with `isError: true` and the failure message as
+`content`, not a JSON-RPC-level `error` envelope; the JSON-RPC-level
+`error` field is reserved for genuine protocol problems (parse failure,
+unrecognized top-level method).
+Source: `python/smart_hedge/mcp_server.py` (relies on the `FastMCP`
+framework converting an exception raised inside a `@mcp.tool()` function
+into an error *result*, not a transport failure — not written explicitly
+in this file, but the observable contract any MCP client depends on).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_mcp::protocol::handle_line`.
+Verifying tests: Rust `protocol::tests::tools_call_with_an_unknown_tool_name_is_an_error_result_not_a_protocol_error`,
+`protocol::tests::tools_call_replay_decision_without_a_decision_id_is_a_tool_error`,
+`protocol::tests::an_unknown_top_level_method_is_a_jsonrpc_protocol_error`
+(the contrasting case — confirms the two error paths are actually
+distinct, not just differently named).
+
+### SDH-LLR-156 — `price_option` runs the deterministic core directly
+Statement: The `price_option` MCP tool shall invoke the deterministic C++
+core directly with the caller-supplied `spot`/`strike`/etc., without
+calling the market-data provider, model adviser, policy gate, or decision
+store — a pure pricing calculator, not a recommendation.
+Source: `python/smart_hedge/mcp_server.py` `price_option`.
+Verification: Test, Inspection. Status: Implemented.
+Implementation: Rust `smart_hedge_mcp::tools::price_option`/`build_contract`.
+Verifying tests: Rust `tools::tests::build_contract_uses_the_configured_base_for_a_known_symbol`,
+`tools::tests::build_contract_defaults_reasonably_for_an_unconfigured_symbol`,
+`tools::tests::build_contract_never_leaves_an_atm_strike_or_an_expiry_date`
+(the contract-shaping logic; the core invocation itself reuses
+`smart_hedge_core_bridge::run_core`, already verified by that crate's own
+tests — verifies SDH-HLR-020, "no other component recomputes the core's
+numbers," by construction: `price_option` calls the same `run_core`
+`smart-hedge-engine` does, not a second implementation).
+
+**Correction (2026-07-19):** `price_option`'s exact base-contract
+resolution for a symbol with no configured contract entry isn't fully
+visible from this crate (Python's `_engine().contract_for` implementation
+wasn't re-read in this pass); this port's choice — a fresh `ContractConfig`
+built from only `strike`/`implied_volatility` via the same
+`#[serde(default = ...)]` schema defaults `SDH-LLR-025` already
+established — is a reasonable, directly-testable, documented judgment
+call for the same observable behavior (a pricing utility that works for
+any symbol), not a verified byte-for-byte match.
 
 ## Dependency minimization (traces to SDH-HLR-160)
 

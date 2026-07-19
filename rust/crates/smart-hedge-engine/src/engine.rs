@@ -186,4 +186,22 @@ impl SmartHedgeEngine {
     pub fn store_path(&self) -> &Path {
         self.store.path()
     }
+
+    /// Read-only access to what this engine was constructed with — for
+    /// callers (like `smart-hedge-mcp`'s `price_option`/
+    /// `get_policy_snapshot` tools) that need to run the deterministic
+    /// core directly or inspect the raw config, bypassing the full
+    /// `recommendation` pipeline (no market-data call, no adviser, no
+    /// store write).
+    pub fn loaded_config(&self) -> &LoadedConfig {
+        &self.loaded_config
+    }
+
+    pub fn project_root(&self) -> &Path {
+        &self.project_root
+    }
+
+    pub fn cpp_source(&self) -> &Path {
+        &self.cpp_source
+    }
 }

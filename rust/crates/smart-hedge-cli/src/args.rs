@@ -2,9 +2,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 /// Port of the subset of `cli.py`'s `argparse` surface this binary
-/// implements. `serve`/`mcp` are recognized (so the error message is
-/// specific rather than "unknown command") but always fail — they need a
-/// dependency decision (HTTP server, MCP-over-stdio) not yet made.
+/// implements.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     BuildCore,
@@ -13,7 +11,7 @@ pub enum Command {
     Replay { decision_id: String },
     Recent { limit: i64, symbol: Option<String> },
     SelfTest { symbol: String },
-    Serve,
+    Serve { host: Option<String>, port: Option<u16> },
     Mcp,
 }
 
@@ -210,7 +208,24 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
             })?;
             Command::SelfTest { symbol: symbol.to_uppercase() }
         }
-        "serve" => Command::Serve,
+        "serve" => {
+            let mut host: Option<String> = None;
+            let mut port: Option<u16> = None;
+            FlagCursor::new(tail).run("serve", |name, value| {
+                match name {
+                    "host" => host = Some(value.to_string()),
+                    "port" => {
+                        port = Some(value.parse::<u16>().map_err(|_| ArgsError::InvalidNumber {
+                            flag: "--port".to_string(),
+                            value: value.to_string(),
+                        })?)
+                    }
+                    _ => return Ok(false),
+                }
+                Ok(true)
+            })?;
+            Command::Serve { host, port }
+        }
         "mcp" => Command::Mcp,
         other => return Err(ArgsError::UnknownCommand(other.to_string())),
     };
@@ -350,8 +365,25 @@ mod tests {
     }
 
     #[test]
-    fn serve_and_mcp_parse_but_are_handled_as_not_yet_ported_by_the_caller() {
-        assert_eq!(parse_args(&args(&["serve"])).unwrap().command, Command::Serve);
+    fn serve_defaults_to_no_host_or_port_override() {
+        let parsed = parse_args(&args(&["serve"])).unwrap();
+        assert_eq!(parsed.command, Command::Serve { host: None, port: None });
+    }
+
+    #[test]
+    fn serve_accepts_host_and_port_overrides() {
+        let parsed = parse_args(&args(&["serve", "--host", "0.0.0.0", "--port", "9000"])).unwrap();
+        assert_eq!(parsed.command, Command::Serve { host: Some("0.0.0.0".to_string()), port: Some(9000) });
+    }
+
+    #[test]
+    fn serve_rejects_a_non_numeric_port() {
+        let result = parse_args(&args(&["serve", "--port", "not-a-port"]));
+        assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--port".to_string(), value: "not-a-port".to_string() }));
+    }
+
+    #[test]
+    fn mcp_parses_with_no_arguments() {
         assert_eq!(parse_args(&args(&["mcp"])).unwrap().command, Command::Mcp);
     }
 

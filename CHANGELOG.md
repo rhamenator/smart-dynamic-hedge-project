@@ -1,5 +1,67 @@
 # Changelog
 
+## Unreleased (Rust migration: fourth slice — network providers, dashboard, MCP server; migration functionally complete)
+
+Ported every remaining Python module, including the previously-deferred
+network-dependent surfaces, with **zero changes to any file in `python/`
+or `cpp/`**. The Rust migration now covers the entire Python package's
+observable behavior; cutover remains a distinct, undecided future step.
+
+Made and documented one new dependency decision: `ureq` (built on
+`rustls`, a memory-safe pure-Rust TLS implementation — no system OpenSSL
+dependency) for the three HTTPS **clients** this slice needed (Alpaca,
+FRED, OpenAI). Scoped only to `smart-hedge-data` and
+`smart-hedge-model-advisor`, not the whole workspace — same "documented
+exception to hand-roll-instead-of-depend" reasoning as
+`smart-hedge-store`'s `rusqlite`, since hand-rolling TLS is a security
+non-starter.
+
+- `smart-hedge-data` — added `AlpacaReadOnlyProvider` (read-only
+  quote/bar HTTP client), FRED evidence loading, and RSS/Atom evidence
+  loading. RSS parsing uses a new hand-rolled, narrowly-scoped XML text
+  extractor (`rss_xml`) rather than a general XML library dependency —
+  deliberately chosen *because* it never parses `<!DOCTYPE>`/`<!ENTITY>`
+  declarations at all, which eliminates the XXE attack surface by
+  construction instead of requiring it to be configured off. Also added
+  `market_hours` (a hand-rolled, DST-aware NYSE-hours approximation,
+  matching Python's own "not a full exchange calendar" caveat). 86 tests
+  (was 28).
+- `smart-hedge-model-advisor` — added `OpenAIAdvisor`, sending only
+  derived, non-secret market data/evidence to the model (never a
+  credential) and marking evidence text untrusted in the system
+  instructions, matching the Python original's boundary. 39 tests (was 25).
+- `smart-hedge-dashboard` (new crate) — full port of `dashboard.py`: the
+  same read-only HTML console and `/api/health`, `/api/recommendation`,
+  `/api/history`, `/api/replay/{id}` JSON endpoints, backed by a
+  **hand-rolled** minimal HTTP/1.1 server (no framework dependency) —
+  safe to hand-roll specifically because it needs no TLS (localhost only,
+  matching Python's own `uvicorn` default) and only parses requests whose
+  shape this process itself defines. 32 tests, 8 of them binding a real
+  ephemeral port and making real HTTP requests against the running server.
+- `smart-hedge-mcp` (new crate) — full port of `mcp_server.py`: a
+  **hand-rolled** JSON-RPC 2.0 / MCP stdio server (no framework
+  dependency) implementing `initialize`, `ping`, `tools/list`,
+  `tools/call`, and all six tools (`health`, `get_market_recommendation`,
+  `price_option`, `replay_decision`, `list_recent_decisions`,
+  `get_policy_snapshot`) — no tool named or shaped like an order-placement
+  tool. 19 tests.
+- `smart-hedge-cli` — `serve` and `mcp` now launch the real dashboard/MCP
+  servers instead of reporting "not yet implemented"; `serve` accepts
+  `--host`/`--port` overrides. New end-to-end tests spawn the real binary
+  as `serve` and make a real HTTP request against it, and spawn it as
+  `mcp` and drive a real `initialize`/`tools/list` exchange over its
+  stdio. 35 tests (was 31).
+
+**373 tests total across the Rust workspace (was 246), all passing,
+`cargo clippy --workspace --all-targets` clean.**
+
+Updated `requirements/LLR.md` and `requirements/TRACEABILITY.md`: closed
+`SDH-LLR-056`, `-081`, `-082`, and `-126` (all previously "deferred" or
+"not ported"), corrected `SDH-LLR-141` (serve/mcp are real now, not
+recognized-but-deferred), and added seven new requirements
+(`SDH-LLR-150` through `-156`) for the dashboard and MCP server. 58 LLRs
+total; 56 Rust-verified.
+
 ## Unreleased (Rust migration: third slice — engine + CLI, zero-cost path is now runnable)
 
 Completed the zero-cost path (synthetic data + heuristic adviser +

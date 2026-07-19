@@ -159,6 +159,23 @@ pub fn cmd_self_test(config_path: Option<PathBuf>, symbol: &str) -> Result<i32, 
     Ok(0)
 }
 
+pub fn cmd_serve(config_path: Option<PathBuf>, host: Option<String>, port: Option<u16>) -> Result<i32, CliError> {
+    let root = project_root()?;
+    let loaded = load_config(resolve_config_path(config_path), &root)?;
+    let cpp_source = cpp_source_path(&root);
+    smart_hedge_dashboard::serve(loaded, root, cpp_source, host.as_deref(), port)?;
+    Ok(0)
+}
+
+pub fn cmd_mcp(config_path: Option<PathBuf>) -> Result<i32, CliError> {
+    let root = project_root()?;
+    let loaded = load_config(resolve_config_path(config_path), &root)?;
+    let cpp_source = cpp_source_path(&root);
+    let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
+    smart_hedge_mcp::run_stdio(&engine)?;
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,12 +14,8 @@ fn run(raw_args: &[String]) -> Result<i32, CliError> {
         Command::Replay { decision_id } => commands::cmd_replay(parsed.config, &decision_id),
         Command::Recent { limit, symbol } => commands::cmd_recent(parsed.config, limit, symbol.as_deref()),
         Command::SelfTest { symbol } => commands::cmd_self_test(parsed.config, &symbol),
-        Command::Serve => Err(CliError::NotYetImplemented(
-            "serve (needs an HTTP-server dependency decision; see requirements/LLR.md SDH-LLR-126)",
-        )),
-        Command::Mcp => Err(CliError::NotYetImplemented(
-            "mcp (needs a JSON-RPC-over-stdio implementation; see requirements/LLR.md SDH-LLR-126)",
-        )),
+        Command::Serve { host, port } => commands::cmd_serve(parsed.config, host, port),
+        Command::Mcp => commands::cmd_mcp(parsed.config),
     }
 }
 

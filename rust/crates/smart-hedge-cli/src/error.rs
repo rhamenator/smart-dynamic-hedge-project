@@ -8,11 +8,8 @@ pub enum CliError {
     Config(smart_hedge_config::ConfigError),
     Core(smart_hedge_core_bridge::CoreError),
     Engine(smart_hedge_engine::EngineError),
+    Dashboard(smart_hedge_dashboard::DashboardError),
     Io(std::io::Error),
-    /// `serve`/`mcp` are recognized commands that need a dependency
-    /// decision (HTTP server, MCP-over-stdio) this binary hasn't made yet —
-    /// distinct from an unrecognized command entirely.
-    NotYetImplemented(&'static str),
     SelfTestFailed(String),
 }
 
@@ -23,8 +20,8 @@ impl fmt::Display for CliError {
             Self::Config(e) => write!(f, "{e}"),
             Self::Core(e) => write!(f, "{e}"),
             Self::Engine(e) => write!(f, "{e}"),
+            Self::Dashboard(e) => write!(f, "{e}"),
             Self::Io(e) => write!(f, "{e}"),
-            Self::NotYetImplemented(what) => write!(f, "{what} is not yet implemented in the Rust CLI"),
             Self::SelfTestFailed(msg) => write!(f, "self-test failed: {msg}"),
         }
     }
@@ -50,6 +47,11 @@ impl From<smart_hedge_core_bridge::CoreError> for CliError {
 impl From<smart_hedge_engine::EngineError> for CliError {
     fn from(e: smart_hedge_engine::EngineError) -> Self {
         CliError::Engine(e)
+    }
+}
+impl From<smart_hedge_dashboard::DashboardError> for CliError {
+    fn from(e: smart_hedge_dashboard::DashboardError) -> Self {
+        CliError::Dashboard(e)
     }
 }
 impl From<std::io::Error> for CliError {

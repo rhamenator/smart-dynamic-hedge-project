@@ -1,15 +1,16 @@
-//! Rust port of `python/smart_hedge/model_advisor.py`'s schema validation
-//! and `HeuristicAdvisor`. `OpenAIAdvisor` is **not yet ported** — it
-//! needs an HTTP-client dependency decision, deferred per
-//! `requirements/LLR.md` `SDH-LLR-126`. See `docs/ROADMAP.md` "Language
-//! and dependency policy".
+//! Rust port of `python/smart_hedge/model_advisor.py`: schema validation,
+//! `HeuristicAdvisor`, and `OpenAIAdvisor`. `OpenAIAdvisor` needs a real
+//! HTTPS call — see this crate's `Cargo.toml` for the `ureq`/`rustls`
+//! dependency decision (same reasoning as `smart-hedge-data`'s).
 
 pub mod advisor;
 pub mod error;
 pub mod heuristic;
+pub mod openai;
 pub mod schema;
 
 pub use advisor::Advisor;
 pub use error::{AdvisorError, SchemaError};
 pub use heuristic::HeuristicAdvisor;
-pub use schema::{validate_assessment_payload, ALLOWED_REGIMES};
+pub use openai::OpenAIAdvisor;
+pub use schema::{assessment_json_schema, validate_assessment_payload, ALLOWED_REGIMES};

@@ -9,6 +9,10 @@ publish.workspace = true
 serde_json = { workspace = true }
 smart_hedge_models = { path = "../smart-hedge-models" }
 smart_hedge_config = { path = "../smart-hedge-config" }
+# Same documented exception as smart-hedge-data's `ureq` dependency: the
+# OpenAI adviser needs a real HTTPS call, and hand-rolling TLS is not an
+# option. See that crate's Cargo.toml for the full reasoning.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 [lints]
 workspace = true
