@@ -204,6 +204,68 @@ mod tests {
         assert_eq!(capped_feeds(&feeds).len(), 3);
     }
 
+    /// Real end-to-end test: a local mock server serves a canned RSS 2.0
+    /// feed, and `load_rss_evidence` makes a real HTTP request against it
+    /// (real TCP, real `ureq` client code) and then runs the *real*
+    /// `rss_xml::extract_feed_entries` parser against the *real* response
+    /// body — not a hand-built in-memory string like `rss_xml`'s own unit
+    /// tests use.
+    #[test]
+    fn load_rss_evidence_makes_a_real_http_round_trip_and_parses_the_response() {
+        let feed_xml = r#"<?xml version="1.0"?>
+            <rss><channel>
+                <item>
+                    <title>Fed holds rates steady</title>
+                    <description>The Federal Reserve left rates unchanged.</description>
+                    <pubDate>Sun, 19 Jul 2026 20:00:00 GMT</pubDate>
+                </item>
+            </channel></rss>"#;
+        let port = crate::mock_http_test_support::start(vec![("/feed.xml", (200, "application/rss+xml", feed_xml.to_string()))]);
+        let feed_url = format!("http://127.0.0.1:{port}/feed.xml");
+
+        let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-e2e-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            format!(r#"{{"provider": {{"rss": {{"enabled": true, "feeds": ["{feed_url}"], "max_items_per_feed": 3}}}}}}"#),
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(Some(&config_path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        let evidence = load_rss_evidence(&loaded, "SPY");
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0].title, "SPY: Fed holds rates steady");
+        assert_eq!(evidence[0].text, "The Federal Reserve left rates unchanged.");
+        assert!(evidence[0].untrusted_text);
+    }
+
+    /// Same real HTTP path, but the mock feed server returns a non-2xx
+    /// status — confirms the fetch-failure-becomes-evidence behavior
+    /// survives a real transport round trip.
+    #[test]
+    fn load_rss_evidence_reports_a_real_http_error_as_evidence() {
+        let port = crate::mock_http_test_support::start(vec![("/feed.xml", (404, "text/plain", "gone".to_string()))]);
+        let feed_url = format!("http://127.0.0.1:{port}/feed.xml");
+
+        let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-e2e-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            format!(r#"{{"provider": {{"rss": {{"enabled": true, "feeds": ["{feed_url}"]}}}}}}"#),
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(Some(&config_path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        let evidence = load_rss_evidence(&loaded, "SPY");
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0].kind, "data_quality");
+        assert_eq!(evidence[0].evidence_id, "rss-error-0");
+    }
+
     #[test]
     fn disabled_rss_returns_no_evidence_without_any_network_call() {
         let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-disabled-{}", std::process::id()));

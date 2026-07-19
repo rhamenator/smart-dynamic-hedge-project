@@ -33,10 +33,10 @@ exists, **O** = Open (implemented but untested), **—** = not applicable
 | SDH-LLR-024 | HLR-030 | `paths::resolve_project_path` | T | `config.py` | O |
 | SDH-LLR-025 | HLR-030 | `types::ContractConfig` | T | `core_bridge.py` | O |
 | SDH-LLR-030 | HLR-120 | `paths::default_binary_path` | T | `core_bridge.py` | O |
-| SDH-LLR-031 | HLR-020 | `paths::resolve_binary` | O | `core_bridge.py` | O |
+| SDH-LLR-031 | HLR-020 | `paths::resolve_binary` | T | `core_bridge.py` | O |
 | SDH-LLR-032 | HLR-120 | `build::build_core`, `which::which` | T | `core_bridge.py` | O |
 | SDH-LLR-033 | HLR-120 | `paths::windows_multi_config_fallback` | T (partial) | `core_bridge.py` | O |
-| SDH-LLR-034 | HLR-020 | `build::ensure_core` | O | `core_bridge.py` | O |
+| SDH-LLR-034 | HLR-020 | `build::ensure_core` | T | `core_bridge.py` | O |
 | SDH-LLR-035 | HLR-020 | `run::run_core` | T | `core_bridge.py` | O |
 | SDH-LLR-036 | HLR-020 | `run_with_timeout::run_command_with_timeout` | T | `core_bridge.py` | O |
 | SDH-LLR-037 | HLR-020 | `core_response::CoreResponse` | T | `core_bridge.py` | O |
@@ -97,9 +97,9 @@ exists, **O** = Open (implemented but untested), **—** = not applicable
 - **HLRs**: 16 (`SDH-HLR-010` .. `SDH-HLR-160`).
 - **LLRs**: 58 (`SDH-LLR-150` through `-156` added this pass for the
   dashboard/MCP server).
-- **Rust-verified (T)**: 56. **Rust-implemented-but-open**: 2
-  (`SDH-LLR-031`, `-034` — explicit binary override and auto-build gating,
-  exercised only indirectly). **Not applicable to Rust**: 0 — every
+- **Rust-verified (T)**: 58. **Rust-implemented-but-open**: 0 —
+  `SDH-LLR-031`/`-034` (explicit binary override, auto-build gating) are
+  now directly tested too. **Not applicable to Rust**: 0 — every
   previously-deferred surface (`SDH-LLR-056` OpenAI adviser, `SDH-LLR-081`
   Alpaca provider, `SDH-LLR-082` MCP tool set) is now implemented and
   tested; nothing in the Python original remains un-ported except the
@@ -116,16 +116,19 @@ exists, **O** = Open (implemented but untested), **—** = not applicable
   actual codebase shape. Closing it properly would mean a repo-wide
   static check ("no code path constructs an order-placement HTTP
   request"), which is future work, not a quick test to add.
-- **373 Rust tests total** across `smart-hedge-{models,config,policy,
+- **389 Rust tests total** across `smart-hedge-{models,config,policy,
   core-bridge,features,store,model-advisor,data,engine,cli,dashboard,mcp}`
   (12 crates, was 10), all passing; `cargo clippy --workspace --all-targets`
   clean. The Rust port now covers the **entire** Python package's observable
   behavior — `once`/`loop`/`replay`/`recent`/`self-test`/`build-core`,
   `serve` (a real HTTP dashboard), and `mcp` (a real MCP stdio server) all
   work end-to-end against the synthetic/heuristic path, and the network
-  providers (Alpaca, FRED, RSS, OpenAI) are implemented and unit-tested
-  (their live network calls are, necessarily, not exercised by automated
-  tests — see `SDH-LLR-081`/`-056`). Nothing has cut over from Python; that
+  providers (Alpaca, FRED, RSS, OpenAI) are implemented and now verified
+  against real local mock HTTP servers exercising the genuine `ureq`
+  request/response code paths — not just hand-built in-memory fixtures
+  (see the addenda under `SDH-LLR-056`/`-081`/`-126`). Only the *live*
+  third-party endpoints themselves remain unverifiable by automated tests
+  (no real credentials in CI). Nothing has cut over from Python; that
   remains a distinct, later decision.
 - **Two dependency decisions made and documented this pass**, both
   narrowly scoped exceptions to "hand-roll instead of depend," same
@@ -151,20 +154,31 @@ exists, **O** = Open (implemented but untested), **—** = not applicable
 
 ## Next actions this recovery pass surfaced
 
-1. `SDH-LLR-031`/`-034` (explicit binary override, auto-build gating): add
-   direct tests in Rust — currently only exercised indirectly.
-2. Close the remaining Python **O** rows for LLRs that already have a
+1. Close the remaining Python **O** rows for LLRs that already have a
    passing Rust test — the existing Python suite (`tests/test_policy.py`,
    `tests/test_model_schema.py`, `tests/test_engine.py`) is much thinner
    than the Rust parity suite and was never extended to match; this is a
    backlog item, not a blocker, since Python remains the running code
    until cutover.
-3. `SDH-LLR-080`'s structural gap (no runtime check that no code path
+2. `SDH-LLR-080`'s structural gap (no runtime check that no code path
    could ever construct an order-placement request) is still open — a
    repo-wide static check is future work, not covered by this pass.
-4. The dashboard's HTML console (`smart_hedge_dashboard::html::INDEX_HTML`)
+3. The dashboard's HTML console (`smart_hedge_dashboard::html::INDEX_HTML`)
    is verbatim-ported but has no browser-driven test (only that the server
    returns it with the right content type) — acceptable for a debug
    console, but worth noting as untested client-side JS.
-5. Cutover from Python to Rust is still a distinct, undecided future step
+4. Cutover from Python to Rust is still a distinct, undecided future step
    — see `rust/README.md` "Connecting it together."
+
+## Closed this pass (previously listed here as open)
+
+- `SDH-LLR-031`/`-034` (explicit binary override, auto-build gating) now
+  have direct Rust tests (`smart-hedge-core-bridge`'s `paths`/`build`
+  modules).
+- The network providers'/adviser's real HTTP request/response handling
+  (`SDH-LLR-056`, `-081`, and FRED/RSS under `-126`) is now verified
+  against real local mock HTTP servers, not just in-memory fixtures —
+  built using the existing Python source (`data.py`, `model_advisor.py`)
+  as the reference for exact wire shapes, per the user's direction to use
+  the Python code to define the behavior the Rust mocks/tests should
+  expect.

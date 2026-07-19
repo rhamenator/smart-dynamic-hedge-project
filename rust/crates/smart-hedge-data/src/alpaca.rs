@@ -267,4 +267,79 @@ mod tests {
     fn iso_replaces_the_utc_offset_suffix() {
         assert_eq!(iso("2026-07-19T00:00:00+00:00"), "2026-07-19T00:00:00Z");
     }
+
+    /// Real end-to-end test: a local mock server stands in for
+    /// `data.alpaca.markets` (its base URL is already configurable via
+    /// `provider.alpaca.data_base_url`, no code change needed), returning
+    /// the exact JSON shapes the real quotes-latest/bars endpoints return,
+    /// and `AlpacaReadOnlyProvider::snapshot` makes real HTTP requests
+    /// against it — not just the pure `parse_bars`/`build_quote` units
+    /// above.
+    #[test]
+    fn snapshot_makes_a_real_http_round_trip_against_a_mock_alpaca() {
+        let port = crate::mock_http_test_support::start(vec![
+            (
+                "/v2/stocks/SPY/quotes/latest",
+                (200, "application/json", r#"{"quote": {"bp": 99.5, "ap": 100.5, "t": "2026-07-19T20:00:00Z"}}"#.to_string()),
+            ),
+            (
+                "/v2/stocks/SPY/bars",
+                (
+                    200,
+                    "application/json",
+                    r#"{"bars": [
+                        {"t": "2026-07-19T19:59:00Z", "o": 99.0, "h": 100.0, "l": 98.5, "c": 99.8, "v": 500.0},
+                        {"t": "2026-07-19T20:00:00Z", "o": 99.8, "h": 100.2, "l": 99.5, "c": 100.0, "v": 700.0}
+                    ]}"#
+                        .to_string(),
+                ),
+            ),
+        ]);
+
+        let dir = std::env::temp_dir().join(format!("smart-hedge-data-alpaca-e2e-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            format!(r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#),
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        let provider = AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap();
+        let snapshot = provider.snapshot("spy").expect("snapshot should succeed against the mock server");
+
+        assert_eq!(snapshot.symbol, "SPY");
+        assert_eq!(snapshot.bars.len(), 2);
+        assert_eq!(snapshot.quote.bid, 99.5);
+        assert_eq!(snapshot.quote.ask, 100.5);
+        assert_eq!(snapshot.quote.source, "alpaca:iex");
+    }
+
+    /// Same real HTTP path, but the mock quotes-latest endpoint returns a
+    /// non-2xx status — `snapshot` should surface that as an `Err`, not
+    /// panic or silently substitute a default quote.
+    #[test]
+    fn snapshot_surfaces_a_real_http_error_from_the_quote_endpoint() {
+        let port = crate::mock_http_test_support::start(vec![(
+            "/v2/stocks/SPY/quotes/latest",
+            (500, "text/plain", "internal error".to_string()),
+        )]);
+
+        let dir = std::env::temp_dir().join(format!("smart-hedge-data-alpaca-e2e-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            format!(r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#),
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        let provider = AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap();
+        let result = provider.snapshot("SPY");
+        assert!(matches!(result, Err(DataError::Http(_))));
+    }
 }

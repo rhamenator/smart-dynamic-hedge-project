@@ -6,6 +6,8 @@
 pub mod advisor;
 pub mod error;
 pub mod heuristic;
+#[cfg(test)]
+mod mock_http_test_support;
 pub mod openai;
 pub mod schema;
 

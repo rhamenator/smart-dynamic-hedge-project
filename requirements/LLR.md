@@ -267,9 +267,14 @@ the platform default.
 Source: `python/smart_hedge/core_bridge.py:22-24`.
 Verification: Test. Status: Implemented.
 Implementation: Python `resolve_binary`; Rust `paths::resolve_binary`.
-Verifying tests: Rust — covered indirectly via `loader::tests::env_overrides_apply_on_top_of_defaults`
-(sets `core.binary`); no direct `resolve_binary` unit test in either
-language. Status: **Open** (add a direct test in both).
+Verifying tests: Rust `paths::tests::resolve_binary_with_no_override_falls_back_to_the_platform_default`,
+`paths::tests::resolve_binary_with_an_explicit_absolute_path_uses_it_verbatim`,
+`paths::tests::resolve_binary_with_an_explicit_relative_path_resolves_against_config_dir_not_project_root`,
+`paths::tests::resolve_binary_with_a_whitespace_only_override_falls_back_to_the_platform_default`
+(direct tests added after the earlier "Open" note — the absolute-path
+case needed a platform-conditional literal, since a bare leading `/` is
+not "absolute" by Windows's definition without a drive letter). Python:
+**Open** (still covered only indirectly).
 
 ### SDH-LLR-032 — Toolchain discovery order: cmake, then g++, then clang++
 Statement: Building the core shall prefer CMake if found on `PATH`; if
@@ -306,7 +311,14 @@ report an error rather than building unexpectedly.
 Source: `python/smart_hedge/core_bridge.py:74-80`.
 Verification: Test. Status: Implemented.
 Implementation: Python `ensure_core`; Rust `build::ensure_core`.
-Verifying tests: **Open** in both languages (no test exercises `auto_build: false` directly).
+Verifying tests: Rust `build::tests::auto_build_false_reports_binary_not_found_without_attempting_a_build`
+(asserts the specific `BinaryNotFound` variant, not just "some error" —
+if `ensure_core` ever regressed to calling `build_core` regardless of
+`auto_build`, the result would be a different `CoreError` variant and
+this test would catch it) and the contrasting
+`build::tests::auto_build_true_attempts_a_build_and_fails_differently_than_auto_build_false`
+(confirms the two configurations really do take different code paths).
+Python: **Open** (no test exercises `auto_build: false` directly).
 
 ### SDH-LLR-035 — Exact core CLI argument set
 Statement: Invoking the core shall pass exactly these flags, in this
@@ -469,6 +481,20 @@ Verifying tests: Rust `openai::tests::the_packaged_default_model_name_placeholde
 Python: **Open** (would require monkeypatching `openai` or running without
 network).
 
+**Addendum (2026-07-19, later the same day):** `assess`'s actual HTTP
+request/response handling (not just the construction-time fail-fast this
+entry covers) is now also verified against a real HTTP round trip: a
+`#[cfg(test)]`-only `responses_url` field
+(`OpenAIAdvisor::with_responses_url`) redirects the real `ureq` POST at a
+local mock server instead of `api.openai.com`, exercising the genuine
+request-shaping, response-parsing, and schema-validation code paths — see
+`openai::tests::assess_makes_a_real_http_round_trip_against_a_mock_openai`
+and its sibling error-path tests. This still can't verify behavior against
+the *real* OpenAI API (model drift, auth edge cases, rate limiting are
+out of reach for an automated test), but it closes the larger gap: the
+wire-format contract itself is now exercised end-to-end, not just
+constructed in memory.
+
 ### SDH-LLR-057 — Fallback-to-heuristic is configuration-gated
 Statement: When the active adviser raises, the engine shall fall back to
 `HeuristicAdvisor` and record the fallback reason only when
@@ -621,6 +647,18 @@ Verifying tests: Rust `alpaca::tests::*` cover the request-shaping logic
 directly (`parse_bars`, `build_quote`); the "no order-capable code path"
 guarantee itself is structural, verified by inspection in both languages,
 the same as `SDH-LLR-080`.
+
+**Addendum (2026-07-19, later the same day):** `snapshot`'s two real GET
+requests are now also verified end-to-end: `provider.alpaca.data_base_url`
+(already configurable — no code change needed) is pointed at a local mock
+server serving the exact JSON shapes the real quotes-latest/bars endpoints
+return, and `AlpacaReadOnlyProvider::snapshot` makes real `ureq` HTTP
+requests against it — see
+`alpaca::tests::snapshot_makes_a_real_http_round_trip_against_a_mock_alpaca`
+and `alpaca::tests::snapshot_surfaces_a_real_http_error_from_the_quote_endpoint`.
+Confirms the request paths (`/v2/stocks/{symbol}/quotes/latest`,
+`/v2/stocks/{symbol}/bars`) and query parameters are exactly what a real
+server would need to see, not just what the unit-level fixtures assume.
 
 ### SDH-LLR-082 — MCP tool set contains no order-capable tool
 Statement: The MCP server shall expose exactly `health`,
@@ -804,6 +842,26 @@ an application of the same reasoning that rule serves). `OpenAIAdvisor`
 (`SDH-LLR-056`) uses the same `ureq` dependency. This entry is kept,
 uncorrected in its original text, per the methodology's requirement that
 corrections be recorded, not silently rewritten.
+
+**Second addendum (2026-07-19, later still):** all three providers'
+real HTTP request/response handling — not just their pure parsing logic
+— is now verified against real local mock servers (`ureq` making a
+genuine TCP round trip to `127.0.0.1`, not a hand-constructed
+`serde_json::Value` fixture): see the addenda under `SDH-LLR-081`
+(Alpaca) and `SDH-LLR-056` (OpenAI), and
+`smart_hedge_data::fred::tests::load_fred_evidence_with_base_makes_a_real_http_round_trip`/
+`smart_hedge_data::rss::tests::load_rss_evidence_makes_a_real_http_round_trip_and_parses_the_response`
+for FRED/RSS. FRED and OpenAI needed a small internal seam
+(`load_fred_evidence_with_base`'s `base_url` parameter;
+`OpenAIAdvisor::with_responses_url`, `#[cfg(test)]`-only) since neither
+endpoint URL is configuration-driven in Python either — Alpaca and RSS
+needed no code change, since their URLs were already configurable.
+Building these mock servers surfaced one real bug: the OpenAI mock's
+first version never drained the POST request body before closing the
+connection, which raced with `ureq` still writing it and produced an
+intermittent (~1-in-5) spurious transport error — fixed by draining the
+body per `Content-Length` first, the same defensive pattern
+`smart-hedge-dashboard`'s own request parser already used.
 
 ## Orchestration (traces to SDH-HLR-020, SDH-HLR-040, SDH-HLR-060, SDH-HLR-100, SDH-HLR-110)
 

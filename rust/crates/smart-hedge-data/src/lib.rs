@@ -14,6 +14,8 @@ pub mod error;
 pub mod evidence_file;
 pub mod fred;
 pub mod market_hours;
+#[cfg(test)]
+mod mock_http_test_support;
 pub mod provider;
 pub mod rng;
 pub mod rss;

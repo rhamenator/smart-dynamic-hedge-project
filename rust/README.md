@@ -17,11 +17,11 @@ undecided step** (see "Connecting it together" below).
 | `smart-hedge-models` | `python/smart_hedge/models.py` | fixture-tested — 30 tests, including a hand-rolled `UtcTimestamp`/`TimestampUtc`-style parser, the `CoreResponse` type matching the C++ core's exact JSON output, SHA-256 (verified against NIST vectors), and a UUID-v4-shaped unique-ID generator |
 | `smart-hedge-config` | `python/smart_hedge/config.py` | fixture-tested — 29 tests; JSON-tree deep-merge (parity with Python's dict merge) feeding a statically-typed `Config`, not an untyped dict; `StrikeSpec` handles the `"ATM"`-or-number contract strike field |
 | `smart-hedge-policy` | `python/smart_hedge/policy.py` | fixture-tested — 18 tests, including exact transcriptions of all four cases in `tests/test_policy.py` plus additional boundary coverage (`TRADE_SHARE_LIMIT`, `PREVIEW_NOTIONAL_LIMIT`, `NONFINITE_CORE_VALUE`, round-half-to-even) the Python suite doesn't currently exercise |
-| `smart-hedge-core-bridge` | `python/smart_hedge/core_bridge.py` | fixture-tested + one real integration test — 7 tests, including one that actually builds and runs the real `cpp/smart_dynamic_hedge.cpp` binary end to end when a toolchain is available (skips gracefully otherwise) |
+| `smart-hedge-core-bridge` | `python/smart_hedge/core_bridge.py` | fixture-tested + real integration tests — 13 tests, including one that actually builds and runs the real `cpp/smart_dynamic_hedge.cpp` binary end to end when a toolchain is available (skips gracefully otherwise), plus direct coverage of the explicit-binary-override and `auto_build: false` gating paths |
 | `smart-hedge-features` | `python/smart_hedge/features.py` | fixture-tested — 33 tests covering data-quality composition, missing-feature marking, the volume-z-score/trend-score history-and-floor guards |
 | `smart-hedge-store` | `python/smart_hedge/store.py` | fixture-tested — 20 tests, including one that directly corrupts a stored row via raw SQL and confirms replay detects the tamper |
-| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema, `HeuristicAdvisor`, `OpenAIAdvisor`) | fixture-tested — 39 tests, including exact transcriptions of `tests/test_model_schema.py`'s cases and pure-logic coverage of the OpenAI request/response shaping (the live API call itself isn't exercised by automated tests — see `SDH-LLR-056`) |
-| `smart-hedge-data` | `python/smart_hedge/data.py` (`SyntheticProvider`, `AlpacaReadOnlyProvider`, evidence-file/FRED/RSS loading) | fixture-tested — 86 tests, including a hand-rolled, DTD/entity-free RSS/Atom XML extractor tested against CDATA, XML entities, and a deliberate XXE-attempt fixture that proves the entity is never expanded |
+| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema, `HeuristicAdvisor`, `OpenAIAdvisor`) | fixture-tested + real end-to-end tests — 43 tests, including exact transcriptions of `tests/test_model_schema.py`'s cases and 4 tests that make a real HTTP round trip against a local mock OpenAI server (the live `api.openai.com` endpoint itself still isn't exercised — see `SDH-LLR-056`) |
+| `smart-hedge-data` | `python/smart_hedge/data.py` (`SyntheticProvider`, `AlpacaReadOnlyProvider`, evidence-file/FRED/RSS loading) | fixture-tested + real end-to-end tests — 92 tests, including a hand-rolled, DTD/entity-free RSS/Atom XML extractor tested against CDATA, XML entities, and a deliberate XXE-attempt fixture that proves the entity is never expanded, plus 6 tests making real HTTP round trips against local mock Alpaca/FRED/RSS servers |
 | `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end integration tests — 25 tests, including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, and both branches of the adviser-failure/fallback path via a deliberately-failing `Advisor` stub |
 | `smart-hedge-dashboard` | `python/smart_hedge/dashboard.py` | fixture-tested + real end-to-end integration tests — 32 tests, including 8 that bind a real ephemeral TCP port, run the real accept loop, and make real HTTP requests against it |
 | `smart-hedge-mcp` | `python/smart_hedge/mcp_server.py` | fixture-tested — 19 tests covering the JSON-RPC 2.0 envelope, all six tools, and the MCP-specific "tool failure is an `isError` result, not a protocol error" distinction |
@@ -34,8 +34,29 @@ once`), not just a set of tested libraries. It is not yet the program a
 user actually runs (`python/smart_hedge/cli.py` still is); cutover is a
 distinct, later decision.
 
-**Total: 373 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 389 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
+
+### Testing the network providers without live credentials
+
+The Alpaca/FRED/RSS/OpenAI integrations are tested against **real local
+mock HTTP servers** (`std::net::TcpListener`-based, test-only, no
+dependency), not just hand-built `serde_json::Value` fixtures — a genuine
+`ureq` request goes out over real loopback TCP and gets parsed by the real
+response-handling code. Alpaca and RSS needed no code change (their
+endpoint URLs are already configuration-driven); FRED and OpenAI needed a
+small internal test-only seam (`load_fred_evidence`'s `base_url`
+parameter, `OpenAIAdvisor::with_responses_url`) since neither URL is
+configurable in Python either. The exact response shapes these mocks
+return are cross-referenced from `python/smart_hedge/data.py`'s and
+`model_advisor.py`'s own field access — the Python source is the spec for
+the wire format, not a runtime dependency. Building the OpenAI mock
+surfaced one real, intermittent (~1-in-5) bug: its first version never
+drained the POST request body before closing the connection, which raced
+with `ureq` still writing it and occasionally produced a spurious
+transport error — fixed by draining the body per `Content-Length` first.
+Only the *live* third-party endpoints remain outside what an automated
+test can verify (no real credentials in CI).
 
 ## Requirements traceability
 
@@ -94,10 +115,13 @@ float-parsing default that silently broke the decision store's
 hash-after-replay integrity check for any payload containing a float that
 wasn't already its own shortest round-trip representation (fixed by
 enabling the `float_roundtrip` Cargo feature workspace-wide — see
-`SDH-LLR-072`'s correction note in `../requirements/LLR.md`). That last one
-is the clearest evidence yet for why this migration insists on real
-end-to-end tests, not just unit tests against hand-built fixtures: no unit
-test happened to construct a float in the specific shape that triggers it.
+`SDH-LLR-072`'s correction note in `../requirements/LLR.md`); and a
+test-double bug in the OpenAI mock server (see "Testing the network
+providers without live credentials" above) that produced an intermittent,
+~1-in-5 spurious test failure until fixed. Both of the last two are the
+clearest evidence yet for why this migration insists on real end-to-end
+tests, not just unit tests against hand-built fixtures: neither was
+visible until a real TCP/HTTP round trip was actually exercised.
 
 ## Known, documented behavioral differences from Python
 

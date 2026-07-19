@@ -27,6 +27,14 @@ pub struct OpenAIAdvisor {
     timeout: Duration,
     max_evidence_items: usize,
     max_evidence_chars: usize,
+    /// The Responses API URL to call — always `RESPONSES_URL` in
+    /// production (`new`/`from_env` never change it); overridden only by
+    /// `#[cfg(test)]` `with_responses_url` so tests can point a real
+    /// `ureq` request at a local mock server instead of the real OpenAI
+    /// API. Not configurable via `provider`/`model` config, matching
+    /// Python (the `openai` SDK client Python constructs also has no
+    /// custom-base-URL option exercised anywhere in `model_advisor.py`).
+    responses_url: String,
 }
 
 impl OpenAIAdvisor {
@@ -58,6 +66,7 @@ impl OpenAIAdvisor {
             timeout: Duration::from_secs_f64(model_cfg.timeout_seconds.max(0.0)),
             max_evidence_items: model_cfg.max_evidence_items.max(0) as usize,
             max_evidence_chars: model_cfg.max_evidence_chars.max(0) as usize,
+            responses_url: RESPONSES_URL.to_string(),
         })
     }
 
@@ -65,6 +74,14 @@ impl OpenAIAdvisor {
         let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
         let openai_model = std::env::var("OPENAI_MODEL").ok();
         Self::new(loaded, api_key, openai_model.as_deref())
+    }
+
+    /// Test-only: redirects the Responses API call to a local mock server
+    /// so `assess` can be exercised as a real end-to-end HTTP round trip.
+    #[cfg(test)]
+    fn with_responses_url(mut self, url: String) -> Self {
+        self.responses_url = url;
+        self
     }
 
     /// Port of `OpenAIAdvisor._payload`. Pure (no I/O), directly testable.
@@ -183,7 +200,7 @@ impl Advisor for OpenAIAdvisor {
             }
         });
 
-        let response = ureq::post(RESPONSES_URL)
+        let response = ureq::post(&self.responses_url)
             .set("Authorization", &format!("Bearer {}", self.api_key))
             .set("Content-Type", "application/json")
             .timeout(self.timeout)
@@ -399,5 +416,84 @@ mod tests {
     fn extract_output_text_returns_none_when_absent() {
         assert_eq!(extract_output_text(&json!({})), None);
         assert_eq!(extract_output_text(&json!({"output": []})), None);
+    }
+
+    fn valid_assessment_json() -> String {
+        serde_json::to_string(&json!({
+            "regime": "calm",
+            "confidence": 0.7,
+            "hedge_urgency": 0.3,
+            "band_multiplier": 1.0,
+            "summary": "ok",
+            "evidence_ids": [],
+            "risks": [],
+            "scenario_spot_shocks": [-0.05, 0.05],
+            "data_requests": []
+        }))
+        .unwrap()
+    }
+
+    fn responses_api_body(id: &str, output_text: &str) -> String {
+        serde_json::to_string(&json!({
+            "id": id,
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": output_text}]}]
+        }))
+        .unwrap()
+    }
+
+    /// Real end-to-end test: a local mock server stands in for
+    /// `api.openai.com`, returning a real Responses-API-shaped JSON body,
+    /// and `assess` makes a real HTTP POST against it (real TCP, real
+    /// `ureq` client code, real JSON parsing and schema validation) — not
+    /// just the pure `build_payload`/`extract_output_text` units above.
+    #[test]
+    fn assess_makes_a_real_http_round_trip_against_a_mock_openai() {
+        let body = responses_api_body("resp_test123", &valid_assessment_json());
+        let port = crate::mock_http_test_support::start(200, body);
+        let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+
+        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        let assessment = result.expect("assess should succeed against the mock server");
+        assert_eq!(assessment.regime, "calm");
+        assert_eq!(assessment.raw_response_id, "resp_test123");
+        assert_eq!(assessment.advisor_kind, "openai");
+    }
+
+    /// Same real HTTP path, but the mock server returns a non-2xx status
+    /// — `assess` should surface that as an `Err`, not panic.
+    #[test]
+    fn assess_surfaces_a_real_http_error_status() {
+        let port = crate::mock_http_test_support::start(500, "server error".to_string());
+        let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+
+        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        assert!(result.is_err());
+    }
+
+    /// Same real HTTP path, but the response has no `output_text` block —
+    /// `assess` should report that specifically, not panic or return an
+    /// empty-but-successful assessment.
+    #[test]
+    fn assess_reports_a_missing_output_text_over_a_real_response() {
+        let body = serde_json::to_string(&json!({"id": "resp_x", "output": []})).unwrap();
+        let port = crate::mock_http_test_support::start(200, body);
+        let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+
+        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        assert!(matches!(result, Err(AdvisorError(msg)) if msg.contains("output_text")));
+    }
+
+    /// Same real HTTP path, but the model's own JSON fails schema
+    /// validation (e.g. an invalid regime) — confirms `validate_assessment_payload`
+    /// is actually applied to a real (mock) model response, not bypassed.
+    #[test]
+    fn assess_rejects_a_schema_invalid_model_response() {
+        let invalid = serde_json::to_string(&json!({"regime": "not-a-real-regime"})).unwrap();
+        let body = responses_api_body("resp_bad", &invalid);
+        let port = crate::mock_http_test_support::start(200, body);
+        let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+
+        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        assert!(result.is_err());
     }
 }

@@ -47,4 +47,64 @@ mod tests {
         let path = windows_multi_config_fallback(Path::new("/root"));
         assert_eq!(path, PathBuf::from("/root/build/Release/smart_dynamic_hedge.exe"));
     }
+
+    fn loaded_config_with_core_binary(core_json: &str) -> LoadedConfig {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("smart-hedge-core-bridge-resolve-binary-test-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(&path, format!(r#"{{"core": {core_json}}}"#)).unwrap();
+        let loaded = smart_hedge_config::load_config(Some(&path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        loaded
+    }
+
+    /// SDH-LLR-031: an empty `core.binary` (the default) falls back to the
+    /// platform-default path under `project_root/build/`, not the
+    /// config-relative resolution an explicit value would get.
+    #[test]
+    fn resolve_binary_with_no_override_falls_back_to_the_platform_default() {
+        let loaded = loaded_config_with_core_binary(r#"{"binary": ""}"#);
+        let resolved = resolve_binary(&loaded, Path::new("/some/other/project/root"));
+        assert_eq!(resolved, default_binary_path(Path::new("/some/other/project/root")));
+    }
+
+    /// SDH-LLR-031: an explicit, absolute `core.binary` is used verbatim —
+    /// it must win over the platform default, and it must not be
+    /// re-resolved against `project_root` (only `resolve_project_path`'s
+    /// own config-relative rule applies, via `config_dir`).
+    #[test]
+    fn resolve_binary_with_an_explicit_absolute_path_uses_it_verbatim() {
+        // A leading `/` alone isn't "absolute" by Rust's/Windows's
+        // definition on Windows (no drive letter) — matching this file's
+        // own `default_binary_path_has_platform_correct_suffix` test,
+        // pick a genuinely platform-absolute literal.
+        let absolute = if cfg!(windows) { r"C:\opt\custom\smart_dynamic_hedge" } else { "/opt/custom/smart_dynamic_hedge" };
+        let loaded = loaded_config_with_core_binary(&format!(r#"{{"binary": "{}"}}"#, absolute.replace('\\', "\\\\")));
+        let resolved = resolve_binary(&loaded, Path::new("/some/other/project/root"));
+        assert_eq!(resolved, PathBuf::from(absolute));
+    }
+
+    /// SDH-LLR-031/SDH-LLR-024: an explicit *relative* `core.binary`
+    /// resolves against the config file's own directory (`config_dir`),
+    /// not `project_root` — the two can legitimately differ (e.g. a
+    /// config file kept outside the repository).
+    #[test]
+    fn resolve_binary_with_an_explicit_relative_path_resolves_against_config_dir_not_project_root() {
+        let loaded = loaded_config_with_core_binary(r#"{"binary": "bin/smart_dynamic_hedge"}"#);
+        let resolved = resolve_binary(&loaded, Path::new("/unrelated/project/root"));
+        assert_eq!(resolved, loaded.config_dir.join("bin").join("smart_dynamic_hedge"));
+        assert!(!resolved.starts_with("/unrelated/project/root"));
+    }
+
+    /// A whitespace-only `core.binary` is treated the same as empty
+    /// (`.trim()` in `resolve_binary`), not as a literal path made of
+    /// spaces.
+    #[test]
+    fn resolve_binary_with_a_whitespace_only_override_falls_back_to_the_platform_default() {
+        let loaded = loaded_config_with_core_binary(r#"{"binary": "   "}"#);
+        let resolved = resolve_binary(&loaded, Path::new("/root"));
+        assert_eq!(resolved, default_binary_path(Path::new("/root")));
+    }
 }

@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased (Rust migration: fifth slice — real end-to-end network testing, no more open gaps)
+
+Closed the remaining honestly-reported test gaps from the previous pass
+by building real local mock HTTP servers (`std::net::TcpListener`-based,
+test-only, no new dependency) for Alpaca, FRED, RSS, and OpenAI, using the
+existing Python source (`data.py`, `model_advisor.py`) as the reference
+for the exact wire shapes to mock — per the user's direction to use the
+Python code to define the behavior the Rust modules and their tests
+should expect.
+
+- `smart-hedge-data`: Alpaca and RSS needed no code change (their endpoint
+  URLs are already configuration-driven) — new tests point
+  `provider.alpaca.data_base_url`/`provider.rss.feeds` at local mock
+  servers and make real `ureq` requests against them. FRED's URL isn't
+  configurable (matching Python, which also hardcodes it), so it gained a
+  small internal `base_url` parameter used only by tests. 92 tests (was 86).
+- `smart-hedge-model-advisor`: `OpenAIAdvisor` gained a `#[cfg(test)]`-only
+  `responses_url` override for the same reason. Building its mock server
+  surfaced a real, intermittent (~1-in-5) bug: the mock never drained the
+  POST request body before closing the connection, racing with `ureq`
+  still writing it and occasionally producing a spurious transport error
+  — fixed by draining the body per `Content-Length` first, the same
+  defensive pattern `smart-hedge-dashboard`'s request parser already used.
+  Caught by stress-running the new tests 20+ times, not by a single run.
+  43 tests (was 39).
+- `smart-hedge-core-bridge`: added direct tests for the two remaining
+  indirectly-tested requirements — `resolve_binary`'s explicit-path
+  precedence (`SDH-LLR-031`) and `ensure_core`'s `auto_build: false`
+  gating (`SDH-LLR-034`), the latter asserting the *specific* error
+  variant so a regression to "always attempt a build" would be caught,
+  not just "some error occurred". 13 tests (was 7).
+
+**389 tests total across the Rust workspace (was 373), all passing,
+`cargo clippy --workspace --all-targets` clean.** Every LLR previously
+marked "Rust-implemented-but-open" or noted as network-untestable is now
+closed except the live third-party endpoints themselves, which no
+automated test can reach without real credentials.
+
+Updated `requirements/LLR.md` (addenda under `SDH-LLR-031`, `-034`,
+`-056`, `-081`, `-126`) and `requirements/TRACEABILITY.md` (56→58
+Rust-verified rows, 0 remaining "implemented-but-open").
+
 ## Unreleased (Rust migration: fourth slice — network providers, dashboard, MCP server; migration functionally complete)
 
 Ported every remaining Python module, including the previously-deferred

@@ -6,6 +6,13 @@ use smart_hedge_models::{EvidenceItem, TimestampUtc};
 
 const USER_AGENT: &str = "smart-dynamic-hedge/0.2";
 const MAX_SERIES: usize = 20;
+/// Not configurable via `provider.fred` — matches Python's
+/// `load_fred_evidence`, which also hardcodes this URL rather than
+/// reading it from config. Threaded through as a parameter internally
+/// (see `fetch_observations`/`load_fred_evidence_with_base`) purely so
+/// tests can point it at a local mock server instead of the real FRED
+/// API — the public `load_fred_evidence` always uses this constant.
+const FRED_BASE_URL: &str = "https://api.stlouisfed.org/fred/series/observations";
 
 fn missing_key_evidence() -> Vec<EvidenceItem> {
     vec![EvidenceItem {
@@ -63,8 +70,8 @@ fn observation_evidence(series_id: &str, payload: &Value) -> EvidenceItem {
     }
 }
 
-fn fetch_observations(series_id: &str, api_key: &str, timeout: Duration) -> Result<Value, String> {
-    let response = ureq::get("https://api.stlouisfed.org/fred/series/observations")
+fn fetch_observations(base_url: &str, series_id: &str, api_key: &str, timeout: Duration) -> Result<Value, String> {
+    let response = ureq::get(base_url)
         .set("User-Agent", USER_AGENT)
         .query("series_id", series_id)
         .query("api_key", api_key)
@@ -85,6 +92,14 @@ fn fetch_observations(series_id: &str, api_key: &str, timeout: Duration) -> Resu
 /// directly) for the same testability reason as
 /// `AlpacaReadOnlyProvider::new` — see that module.
 pub fn load_fred_evidence(loaded: &LoadedConfig, api_key: Option<&str>) -> Vec<EvidenceItem> {
+    load_fred_evidence_with_base(loaded, api_key, FRED_BASE_URL)
+}
+
+/// The real implementation, with the request URL as an explicit parameter
+/// so tests can point it at a local mock server for a real end-to-end
+/// HTTP round trip — see `FRED_BASE_URL`'s doc comment. `load_fred_evidence`
+/// is the only production entry point and always passes the real URL.
+fn load_fred_evidence_with_base(loaded: &LoadedConfig, api_key: Option<&str>, base_url: &str) -> Vec<EvidenceItem> {
     let fred = &loaded.config.provider.fred;
     if !fred.enabled {
         return vec![];
@@ -96,7 +111,7 @@ pub fn load_fred_evidence(loaded: &LoadedConfig, api_key: Option<&str>) -> Vec<E
 
     capped_series(&fred.series)
         .iter()
-        .map(|series_id| match fetch_observations(series_id, api_key, timeout) {
+        .map(|series_id| match fetch_observations(base_url, series_id, api_key, timeout) {
             Ok(payload) => observation_evidence(series_id, &payload),
             Err(reason) => error_evidence(series_id, &reason),
         })
@@ -199,5 +214,48 @@ mod tests {
     fn series_list_shorter_than_the_cap_is_unaffected() {
         let series: Vec<String> = (0..5).map(|i| format!("S{i}")).collect();
         assert_eq!(capped_series(&series).len(), 5);
+    }
+
+    /// Real end-to-end test: a local mock server stands in for
+    /// `api.stlouisfed.org`, returning the exact JSON shape the real FRED
+    /// observations endpoint returns, and `load_fred_evidence_with_base`
+    /// makes a real HTTP request against it (real TCP, real `ureq` client
+    /// code, real JSON parsing) — not just the pure `observation_evidence`
+    /// unit above.
+    #[test]
+    fn load_fred_evidence_with_base_makes_a_real_http_round_trip() {
+        let port = crate::mock_http_test_support::start(vec![(
+            "/fred/series/observations",
+            (200, "application/json", r#"{"observations": [{"date": "2026-07-18", "value": "18.5"}]}"#.to_string()),
+        )]);
+        let base_url = format!("http://127.0.0.1:{port}/fred/series/observations");
+
+        let loaded = config_with_fred(r#"{"enabled": true, "series": ["VIXCLS"]}"#);
+        let evidence = load_fred_evidence_with_base(&loaded, Some("dummy-key"), &base_url);
+
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0].evidence_id, "fred-VIXCLS-2026-07-18");
+        assert_eq!(evidence[0].value, json!(18.5));
+        assert_eq!(evidence[0].kind, "macro");
+    }
+
+    /// Same real HTTP path, but the mock server returns a non-2xx status —
+    /// confirms the connector-failure-becomes-evidence behavior
+    /// (`SDH-LLR-...` FRED error handling) survives a real transport
+    /// round trip, not just a hand-constructed error string.
+    #[test]
+    fn load_fred_evidence_with_base_reports_a_real_http_error_as_evidence() {
+        let port = crate::mock_http_test_support::start(vec![(
+            "/fred/series/observations",
+            (500, "text/plain", "internal error".to_string()),
+        )]);
+        let base_url = format!("http://127.0.0.1:{port}/fred/series/observations");
+
+        let loaded = config_with_fred(r#"{"enabled": true, "series": ["VIXCLS"]}"#);
+        let evidence = load_fred_evidence_with_base(&loaded, Some("dummy-key"), &base_url);
+
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0].kind, "data_quality");
+        assert_eq!(evidence[0].evidence_id, "fred-error-VIXCLS");
     }
 }
