@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (docs: trade-guard-mcp reaches a paper-only vertical slice)
+
+Cross-repo note only — no code in this repository changed. The sibling
+`trade-guard-mcp` repository now has a real, tested, paper-only vertical
+slice (typed contracts, evidence-eligibility gate, atomic
+authorize-and-submit-paper-order protocol, hash-chained audit log, MCP
+stdio server; 149 tests). This is the gate `docs/ROADMAP.md` "V2
+multi-repository expansion" said this repository's next milestone (typed
+sibling clients, `MODEL_URI` router) was waiting on — updated that
+section to reflect the new status and unblocked next step. That next
+milestone itself has not been started here.
+
 ## Unreleased (Rust cutover: Python removed, Rust is now the sole implementation)
 
 Completed the cutover from Python to Rust described as "current direction"

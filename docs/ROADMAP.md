@@ -59,16 +59,26 @@ split across three repositories with separate security boundaries:
   types are implemented and tested against fixtures; no real external
   provider, MCP transport, or durable storage backend exists yet.
 * [`trade-guard-mcp`](https://github.com/rhamenator/trade-guard-mcp) —
-  account/risk/execution guard. **Status: not-started** — repository and
-  module skeleton only; no risk engine, execution protocol, or broker
-  adapter exists.
+  account/risk/execution guard. **Status: paper-only vertical slice
+  (2026-07-20)** — typed `TradeIntent`/`EvidenceBundle`/`InstrumentId`
+  contracts, `check-evidence-eligibility`, the atomic
+  `authorize-and-submit-paper-order` protocol (durable, idempotent) against
+  an internal deterministic paper simulator, a hash-chained tamper-evident
+  SQLite audit log, and a real MCP stdio server exposing 13 tools — 149
+  tests, verified end to end against the compiled release binary. No
+  live-execution path exists in source at all (not merely disabled); no
+  real broker/venue/FIX adapter, market-abuse surveillance, remote
+  transport, or operator-admin surface yet — see that repo's
+  `docs/CAPABILITY_STATUS.md` for the exact scope cuts and why each is
+  deliberate, not an oversight.
 
-None of this repository's own code changed as part of that expansion yet.
-The next milestone for this repository is Phase 4 in
-`06-implementation-order-and-acceptance.md` of that bundle: add typed
-clients for the two sibling services, international instrument/venue
-schemas, and the `MODEL_URI` router — only after `trade-guard-mcp` has at
-least a paper-only vertical slice (its own Phase 3) to integrate against.
+None of this repository's own code changed as part of the V2 expansion
+itself. `trade-guard-mcp` reaching a paper-only vertical slice (its own
+Phase 3) is the gate the next milestone here was waiting on. That next
+milestone is Phase 4 in `06-implementation-order-and-acceptance.md` of the
+prompt bundle: add typed clients for the two sibling services,
+international instrument/venue schemas, and the `MODEL_URI` router. Not
+yet started in this repository as of this note.
 
 ## Language and dependency policy (decided 2026-07-19)
 
