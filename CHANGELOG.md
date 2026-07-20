@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (docs: international venue awareness landed in trade-guard-mcp)
+
+Cross-repo note only — no code in this repository changed. Closes
+another of the five gaps `docs/ROADMAP.md` Phase 4 named: international
+instrument/venue schemas. `market-system-contracts`'
+`jurisdiction-venue-profile.schema.json` went from an untested scaffold
+to a tightened schema with real fixtures (NYSE Arca vs. Tokyo Stock
+Exchange); `trade-guard-mcp` is the first real consumer (`get-venue-profile`
+tool, non-blocking `PolicyOutcome.warnings` for an unregistered venue).
+This repository doesn't consume venue profiles directly — that's
+`trade-guard-mcp`'s domain — so this entry is a status update, not a code
+change.
+
 ## Unreleased (MODEL_URI router)
 
 Closes another of the five gaps `docs/ROADMAP.md` Phase 4 named as still

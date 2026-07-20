@@ -107,13 +107,26 @@ distinction is deliberate. Verified against a real two-entry registry
 (heuristic + openai, the latter failing fast and cleanly without
 credentials) plus confirming the no-flag path is unchanged.
 
-Still not done, and explicitly out of scope so far: international
-instrument/venue schemas, whale/corporate/political/price/options/FX/
-crypto signal integration beyond the one demo fixture, evidence-graph/
-source-use UI, a point-in-time backtester, and a paper-autonomous state
-machine (`guard-demo` is a one-shot manual command, not an autonomous
-loop). Each remains a distinct, later milestone, being worked through in
-sequence.
+**International instrument/venue schemas — done (2026-07-20).**
+`market-system-contracts`'s `jurisdiction-venue-profile.schema.json` went
+from an untested Phase 1 scaffold to a tightened schema with 15 boundary/
+fixture test cases, including two genuinely different real venues (NYSE
+Arca vs. Tokyo Stock Exchange — different timezone, currency, settlement
+convention, tick rules, session structure). `trade-guard-mcp` is the
+first real consumer: a new `jurisdiction_venue` module, a `get-venue-profile`
+tool, and a `PolicyOutcome.warnings` field that attaches a visible,
+non-blocking limitation to a paper order when its venue has no current
+profile — this repository doesn't consume venue profiles directly (that's
+`trade-guard-mcp`'s domain per the V2 architecture), but the schema and
+its first consumer are real now, not just documented. See that repo's
+`docs/CAPABILITY_STATUS.md` and `market-system-contracts`'s `CHANGELOG.md`.
+
+Still not done, and explicitly out of scope so far:
+whale/corporate/political/price/options/FX/crypto signal integration
+beyond the one demo fixture, evidence-graph/source-use UI, a point-in-time
+backtester, and a paper-autonomous state machine (`guard-demo` is a
+one-shot manual command, not an autonomous loop). Each remains a
+distinct, later milestone, being worked through in sequence.
 
 ## Language and dependency policy (decided 2026-07-19)
 
