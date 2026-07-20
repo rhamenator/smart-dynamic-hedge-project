@@ -13,6 +13,7 @@ pub mod alpaca;
 pub mod error;
 pub mod evidence_file;
 pub mod fred;
+mod http_util;
 pub mod market_hours;
 #[cfg(test)]
 mod mock_http_test_support;

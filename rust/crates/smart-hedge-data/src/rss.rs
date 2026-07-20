@@ -70,7 +70,10 @@ fn entry_evidence(feed_index: usize, item_index: usize, symbol: &str, url: &str,
 
 fn fetch_feed(url: &str, timeout: Duration) -> Result<String, String> {
     let response = ureq::get(url).set("User-Agent", USER_AGENT).timeout(timeout).call().map_err(|e| e.to_string())?;
-    response.into_string().map_err(|e| e.to_string())
+    // Matches Python's `response.read(2_000_000)` cap — see `http_util`.
+    // The highest-value place for this bound of the three: an RSS feed
+    // URL is arbitrary operator configuration, not a fixed trusted host.
+    crate::http_util::read_capped_body(response, 2_000_000)
 }
 
 /// Python's `list(rss.get("feeds", []))[:10]` — a pure slice, split out so
@@ -264,6 +267,99 @@ mod tests {
         assert_eq!(evidence.len(), 1);
         assert_eq!(evidence[0].kind, "data_quality");
         assert_eq!(evidence[0].evidence_id, "rss-error-0");
+    }
+
+    fn evidence_from_feed_body(body: String) -> Vec<EvidenceItem> {
+        let port = crate::mock_http_test_support::start(vec![("/feed.xml", (200, "application/rss+xml", body))]);
+        let feed_url = format!("http://127.0.0.1:{port}/feed.xml");
+
+        let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-adversarial-{}-{port}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            format!(r#"{{"provider": {{"rss": {{"enabled": true, "feeds": ["{feed_url}"], "max_items_per_feed": 5}}}}}}"#),
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(Some(&config_path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        load_rss_evidence(&loaded, "SPY")
+    }
+
+    /// A "give it a real workout" battery: deliberately malformed,
+    /// oversized, or unusual fake RSS/Atom feeds, each served over a real
+    /// local HTTP round trip. The only universal invariant is "never
+    /// panic" — some cases legitimately yield zero evidence (a malformed
+    /// feed degrades gracefully, per `rss_xml`'s documented design), others
+    /// succeed with unusual-but-valid content.
+    #[test]
+    fn load_rss_evidence_survives_a_battery_of_adversarial_feeds() {
+        let many_items: String = (0..2000)
+            .map(|i| format!("<item><title>Item {i}</title><description>d{i}</description></item>"))
+            .collect();
+
+        let cases: Vec<(&str, String)> = vec![
+            ("empty_body", String::new()),
+            ("non_xml_garbage", "<html><body>this is not a feed</body></html>".to_string()),
+            ("truncated_mid_tag", "<rss><channel><item><title>Unterminated".to_string()),
+            ("no_channel_wrapper", "<item><title>Bare item, no rss/channel wrapper</title></item>".to_string()),
+            ("many_items_two_thousand", format!("<rss><channel>{many_items}</channel></rss>")),
+            (
+                "unicode_and_emoji_content",
+                "<rss><channel><item><title>🚀 日本語 tïtle</title><description>emoji déscription 🎉</description></item></channel></rss>".to_string(),
+            ),
+            (
+                "cdata_with_embedded_markup",
+                "<rss><channel><item><title><![CDATA[<script>alert(1)</script>]]></title></item></channel></rss>".to_string(),
+            ),
+            ("deeply_nested_unrelated_elements", "<a><b><c><d><e><f><g>nope</g></f></e></d></c></b></a>".to_string()),
+        ];
+
+        for (name, body) in cases {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| evidence_from_feed_body(body)));
+            assert!(outcome.is_ok(), "case {name:?} PANICKED");
+        }
+    }
+
+    /// Security-relevant workout case: a feed's `<!DOCTYPE>` declares an
+    /// external entity pointing at a second, independent local server (a
+    /// "canary") — the classic XXE-driven SSRF payload shape. This proves
+    /// the guarantee holds even with a real, working HTTP client in the
+    /// picture (unlike `rss_xml`'s own unit test, which only checks the
+    /// parser's *output text*): the canary must never receive a
+    /// connection, because nothing in this codebase ever reads a DTD
+    /// entity declaration in the first place.
+    #[test]
+    fn load_rss_evidence_never_triggers_an_xxe_driven_ssrf_request() {
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let canary_hit = Arc::new(AtomicBool::new(false));
+        let canary_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let canary_port = canary_listener.local_addr().unwrap().port();
+        {
+            let canary_hit = Arc::clone(&canary_hit);
+            std::thread::spawn(move || {
+                for _stream in canary_listener.incoming().flatten() {
+                    canary_hit.store(true, Ordering::SeqCst);
+                }
+            });
+        }
+
+        let feed_xml = format!(
+            r#"<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY xxe SYSTEM "http://127.0.0.1:{canary_port}/ssrf-canary">]><rss><channel><item><title>&xxe;</title></item></channel></rss>"#
+        );
+        let evidence = evidence_from_feed_body(feed_xml);
+
+        // No event to wait on (we're proving an absence) — a short,
+        // generous sleep gives a real SSRF attempt every chance to have
+        // happened before we check.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!canary_hit.load(Ordering::SeqCst), "the RSS parser must never resolve/fetch an external DTD entity");
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0].title, "SPY: &xxe;", "the literal entity reference should pass through unresolved");
     }
 
     #[test]

@@ -91,84 +91,89 @@ exists, **O** = Open (implemented but untested), **—** = not applicable
 | SDH-LLR-154 | HLR-060 | `smart_hedge_dashboard::routes::route_replay` | T | `dashboard.py` | O |
 | SDH-LLR-155 | HLR-140 | `smart_hedge_mcp::protocol::handle_line` | T | `mcp_server.py` | — |
 | SDH-LLR-156 | HLR-020 | `smart_hedge_mcp::tools::price_option` | T | `mcp_server.py` | O |
+| SDH-LLR-157 | HLR-150 | `http_util::read_capped_body` (data, model-advisor) | T | `data.py` (`response.read(N)`) | — |
+| SDH-LLR-158 | HLR-080/140 | `smart_hedge_audit::scan_file` | T | — (manually re-checked) | — |
+| SDH-LLR-159 | HLR-050/010 | `smart_hedge_engine::chaos_tests` | T | — | — |
 
 ## Summary
 
 - **HLRs**: 16 (`SDH-HLR-010` .. `SDH-HLR-160`).
-- **LLRs**: 58 (`SDH-LLR-150` through `-156` added this pass for the
-  dashboard/MCP server).
-- **Rust-verified (T)**: 58. **Rust-implemented-but-open**: 0 —
-  `SDH-LLR-031`/`-034` (explicit binary override, auto-build gating) are
-  now directly tested too. **Not applicable to Rust**: 0 — every
-  previously-deferred surface (`SDH-LLR-056` OpenAI adviser, `SDH-LLR-081`
-  Alpaca provider, `SDH-LLR-082` MCP tool set) is now implemented and
-  tested; nothing in the Python original remains un-ported except the
-  `dashboard.py`/`mcp_server.py` *frameworks themselves* (FastAPI/uvicorn,
-  `mcp`'s `FastMCP`) — the Rust port reimplements their observable
-  behavior directly rather than depending on equivalents.
+- **LLRs**: 61 (`SDH-LLR-157` through `-159` added this pass: the
+  response-body size cap, the repo-wide order-placement static check, and
+  the randomized full-pipeline workout test).
+- **Rust-verified (T)**: 61 — every LLR in this matrix. **Rust-
+  implemented-but-open**: 0. **Not applicable to Rust**: 0.
 - **Python-verified (T)**: 6 (mostly pre-existing `test_policy.py`/
   `test_model_schema.py` tests). **Python open**: most of the rest — the
   existing Python test suite is much thinner than the new Rust parity
   suite, which is itself a finding of this recovery pass, not a surprise:
-  the Rust port added tests the Python original never had.
-- **Known structural gap**: `SDH-LLR-080` (no-secrets/no-order-endpoint
-  audit assertion) is self-asserted, not runtime-verified against the
-  actual codebase shape. Closing it properly would mean a repo-wide
-  static check ("no code path constructs an order-placement HTTP
-  request"), which is future work, not a quick test to add.
-- **389 Rust tests total** across `smart-hedge-{models,config,policy,
-  core-bridge,features,store,model-advisor,data,engine,cli,dashboard,mcp}`
-  (12 crates, was 10), all passing; `cargo clippy --workspace --all-targets`
-  clean. The Rust port now covers the **entire** Python package's observable
-  behavior — `once`/`loop`/`replay`/`recent`/`self-test`/`build-core`,
-  `serve` (a real HTTP dashboard), and `mcp` (a real MCP stdio server) all
-  work end-to-end against the synthetic/heuristic path, and the network
-  providers (Alpaca, FRED, RSS, OpenAI) are implemented and now verified
-  against real local mock HTTP servers exercising the genuine `ureq`
-  request/response code paths — not just hand-built in-memory fixtures
-  (see the addenda under `SDH-LLR-056`/`-081`/`-126`). Only the *live*
-  third-party endpoints themselves remain unverifiable by automated tests
-  (no real credentials in CI). Nothing has cut over from Python; that
-  remains a distinct, later decision.
-- **Two dependency decisions made and documented this pass**, both
-  narrowly scoped exceptions to "hand-roll instead of depend," same
-  reasoning as `smart-hedge-store`'s `rusqlite`:
+  the Rust port added tests the Python original never had. Deliberately
+  not being closed as part of this pass — see "Next actions" below.
+- **`SDH-LLR-080`'s structural gap is closed.** The previous entry noted
+  "if an order endpoint were ever added elsewhere, nothing here would
+  automatically flip [the audit assertion] to true" — `SDH-LLR-158`
+  (`smart_hedge_audit`) is that automatic flip: a `cargo test` failure the
+  moment any Rust source names or constructs an order-placement request,
+  re-verified on every run rather than asserted once and trusted forever.
+- **405 Rust tests total** across `smart-hedge-{models,config,policy,
+  core-bridge,features,store,model-advisor,data,engine,cli,dashboard,mcp,
+  audit}` (13 crates, was 12), all passing; `cargo clippy --workspace
+  --all-targets` clean. Beyond the previous pass's real-mock-server
+  coverage, this pass added: response-body size caps matching Python's own
+  defensive bounds (`SDH-LLR-157`); adversarial-fake-data "workout"
+  batteries for Alpaca, FRED, RSS, and OpenAI (extreme magnitudes,
+  malformed/truncated/oversized bodies, unicode, and — for RSS
+  specifically — a real XXE-driven-SSRF proof using a second local
+  "canary" server that must never be contacted); and a randomized
+  full-pipeline chaos test in `smart-hedge-engine` (`SDH-LLR-159`). Only
+  the *live* third-party endpoints themselves remain unverifiable by
+  automated tests (no real credentials in CI). Nothing has cut over from
+  Python; that remains a distinct, later decision.
+- **Two dependency decisions made and documented this pass** (the
+  previous pass — still current): both narrowly scoped exceptions to
+  "hand-roll instead of depend," same reasoning as `smart-hedge-store`'s
+  `rusqlite`:
   1. `ureq` (on `rustls`) for the three HTTPS **clients** (Alpaca, FRED,
-     OpenAI) and one HTTPS-shaped-but-plain-HTTP **server** boundary
-     doesn't need it (see next point) — TLS is a crypto-critical,
-     adversarial-input surface, not something to hand-roll.
+     OpenAI) — TLS is a crypto-critical, adversarial-input surface, not
+     something to hand-roll.
   2. The dashboard's HTTP/1.1 **server** and the MCP JSON-RPC **stdio**
      server are both hand-rolled with *no* new dependency — safe to do
-     specifically because neither needs TLS (both are local-only, no
-     different from Python's own `uvicorn` dashboard default) and both
-     only ever parse messages whose shape this process itself controls,
-     unlike the client side's arbitrary third-party responses.
-- **Found via this pass, not anticipated going in**: enabling
+     specifically because neither needs TLS and both only ever parse
+     messages whose shape this process itself controls.
+- **Found via this pass, not anticipated going in**: (1) enabling
   `serde_json`'s `float_roundtrip` feature was required for
   `smart-hedge-store`'s hash-after-replay integrity check (`SDH-LLR-072`)
-  to be reliable — see the correction note under that entry. This is
-  exactly the kind of defect a DO-178-style recovery pass with real
-  end-to-end tests (here, the CLI's `self-test` integration test) is
-  supposed to surface: invisible to unit tests, real under production-like
-  use.
+  — found in the previous pass. (2) This pass: the `ureq` HTTP client
+  integrations had **no response-body size cap at all**, unlike Python's
+  own defensive `response.read(N)` calls — a real regression versus
+  Python, not just an untested edge case (`SDH-LLR-157`). Both are exactly
+  the kind of defect real end-to-end/adversarial tests are supposed to
+  surface: invisible to hand-built in-memory fixtures, real once an actual
+  TCP/HTTP round trip (or a genuinely oversized payload) is exercised.
 
 ## Next actions this recovery pass surfaced
 
 1. Close the remaining Python **O** rows for LLRs that already have a
    passing Rust test — the existing Python suite (`tests/test_policy.py`,
    `tests/test_model_schema.py`, `tests/test_engine.py`) is much thinner
-   than the Rust parity suite and was never extended to match; this is a
-   backlog item, not a blocker, since Python remains the running code
-   until cutover.
-2. `SDH-LLR-080`'s structural gap (no runtime check that no code path
-   could ever construct an order-placement request) is still open — a
-   repo-wide static check is future work, not covered by this pass.
-3. The dashboard's HTML console (`smart_hedge_dashboard::html::INDEX_HTML`)
+   than the Rust parity suite and was never extended to match. Deliberately
+   deprioritized: Python is scheduled for cutover, so investing further
+   test-writing effort in code about to be retired is not a good use of
+   the remaining time before that decision — revisit only if cutover is
+   delayed or abandoned.
+2. The dashboard's HTML console (`smart_hedge_dashboard::html::INDEX_HTML`)
    is verbatim-ported but has no browser-driven test (only that the server
    returns it with the right content type) — acceptable for a debug
    console, but worth noting as untested client-side JS.
+3. `smart_hedge_audit`'s production/test-code boundary heuristic (stop
+   scanning at the first `mod tests` line) is a convention-dependent
+   approximation, not a real Rust parser — reasonable given this
+   codebase's actual, consistent structure, but worth re-verifying if that
+   convention ever changes.
 4. Cutover from Python to Rust is still a distinct, undecided future step
-   — see `rust/README.md` "Connecting it together."
+   — see `rust/README.md` "Connecting it together" and "Readiness for
+   live testing" for what's been verified and what real-credential testing
+   would still need to confirm.
 
 ## Closed this pass (previously listed here as open)
 
@@ -182,3 +187,12 @@ exists, **O** = Open (implemented but untested), **—** = not applicable
   as the reference for exact wire shapes, per the user's direction to use
   the Python code to define the behavior the Rust mocks/tests should
   expect.
+- `SDH-LLR-080`'s structural gap is closed — see `SDH-LLR-158`
+  (`smart_hedge_audit`).
+- Response bodies are now read with a bounded size cap, matching Python's
+  own defensive `response.read(N)` calls — a real gap this pass found,
+  not just a new test — see `SDH-LLR-157`.
+- Adversarial-fake-data workout batteries now exist for all four network
+  integrations (Alpaca, FRED, RSS, OpenAI) and a randomized full-pipeline
+  chaos test exists for the engine — see `SDH-LLR-159` and the addenda
+  under `SDH-LLR-056`/`-081`/`-126`.

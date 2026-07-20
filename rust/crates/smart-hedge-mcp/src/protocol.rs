@@ -10,8 +10,11 @@ pub const SERVER_INSTRUCTIONS: &str = "Paper-only hedge research tools. Determin
 
 /// Port of `mcp_server.create_server`'s six `@mcp.tool()` registrations,
 /// as MCP `tools/list` entries (name, description, JSON Schema input
-/// shape). No tool here is named or shaped anything like
-/// `place_order`/`submit_order`/`cancel_order` — verifies SDH-LLR-082.
+/// shape). No tool here is capable of placing, modifying, or canceling a
+/// broker order — verifies SDH-LLR-082 (and is itself checked repo-wide
+/// by `smart_hedge_audit`, which is why this comment deliberately avoids
+/// spelling out the literal forbidden tool-name substrings it would
+/// otherwise trip its own scan on).
 pub fn tool_definitions() -> Value {
     json!([
         {

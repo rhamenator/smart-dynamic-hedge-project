@@ -5,6 +5,8 @@ pub mod factory;
 pub mod hashing;
 
 #[cfg(test)]
+mod chaos_tests;
+#[cfg(test)]
 mod integration_tests;
 
 pub use contract::{resolve_contract, resolved_strike, ContractOverrides};

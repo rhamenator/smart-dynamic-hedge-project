@@ -1,5 +1,67 @@
 # Changelog
 
+## Unreleased (Rust migration: sixth slice — traceability matrix complete, live-testing readiness workout)
+
+Completed the requirements traceability matrix (every LLR now Rust-verified,
+zero open items) and gave the system a real workout with fake data, per
+direction to build confidence before considering this ready for
+live-data (still paper-mode) testing.
+
+- **Closed `SDH-LLR-080`'s structural gap**, open since the original
+  requirements-recovery pass: added `smart-hedge-audit`, a new dependency-
+  free crate that scans every `.rs` file in the workspace on every
+  `cargo test` run and fails if any names or constructs an
+  order-placement request (a `place_order`/`submit_order`/`cancel_order`-
+  shaped identifier, a broker order-endpoint path, or a mutating HTTP verb
+  outside the one file that legitimately needs `POST`). Includes four
+  self-tests proving the checker actually detects a planted violation,
+  correctly ignores mentions inside test code, and correctly allows the
+  one legitimate `POST` call site. `python/` and `cpp/` were manually
+  re-checked for the same patterns (clean) but aren't covered by an
+  automated check, since Python is scheduled for cutover.
+- **Found and fixed a real gap versus Python**: the `ureq` HTTP client
+  integrations (Alpaca, FRED, RSS, OpenAI) had no response-body size cap
+  at all, unlike Python's own defensive `response.read(2_000_000)`/
+  `response.read(1_000_000)` calls in `data.py` — an unbounded
+  `.into_string()` read could have let a misbehaving or hostile endpoint
+  (an arbitrary operator-configured RSS feed URL, especially) exhaust
+  memory. Fixed with `http_util::read_capped_body`, matching Python's
+  exact bounds for Alpaca/FRED/RSS and a new 5MB bound for OpenAI (which
+  Python doesn't explicitly cap either, since it's the `openai` SDK
+  client, not a hand-rolled fetch).
+- **Added adversarial "workout" test batteries** using deliberately
+  extreme, malformed, or hostile fake data against real local mock
+  servers — for Alpaca (extreme-magnitude/negative prices, null fields,
+  5,000-bar responses), FRED (numeric/string value types, the `.`
+  placeholder, infinity-overflow), RSS (truncated XML, 2,000-item feeds,
+  unicode/CDATA), and OpenAI (non-JSON output, extra fields, evidence-ID
+  arrays past the cap, absurd numeric values). Every case asserts only
+  "never panics" — some are expected to succeed, others to fail cleanly.
+- **Added a dedicated XXE-driven-SSRF proof for RSS**: a feed's
+  `<!DOCTYPE>` declares an external entity pointing at a second,
+  independent local "canary" server; the test asserts the canary is never
+  contacted, proving the RSS parser's no-DTD-support design decision
+  holds with a real, working HTTP client in the picture — not just in the
+  parser's own unit-tested output text.
+- **Added a randomized full-pipeline "chaos" test** in `smart-hedge-engine`:
+  25 iterations (fixed-seed xorshift64 PRNG) across random symbols —
+  including one with no configured contract at all — and boundary/
+  out-of-range contract overrides, with an adviser that fails ~25% of
+  calls unpredictably. Every iteration must either succeed with
+  `mode: "paper"`/`live_execution_allowed: false` and a valid replay
+  hash, or fail with one of a small, explicitly-allowed set of error
+  variants; anything else (including a panic) fails the test.
+
+**405 tests total across the Rust workspace (was 389), all passing,
+`cargo clippy --workspace --all-targets` clean.** Updated
+`requirements/LLR.md` (three new requirements, `SDH-LLR-157` through
+`-159`, plus corrections closing `SDH-LLR-080`) and
+`requirements/TRACEABILITY.md` (61 LLRs total, all Rust-verified — zero
+"open" or "not applicable" rows for the first time). `rust/README.md`
+gained a "Readiness for live testing" section spelling out exactly what
+this pass verified and what real-credential testing would still need to
+confirm.
+
 ## Unreleased (Rust migration: fifth slice — real end-to-end network testing, no more open gaps)
 
 Closed the remaining honestly-reported test gaps from the previous pass

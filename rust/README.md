@@ -20,12 +20,13 @@ undecided step** (see "Connecting it together" below).
 | `smart-hedge-core-bridge` | `python/smart_hedge/core_bridge.py` | fixture-tested + real integration tests — 13 tests, including one that actually builds and runs the real `cpp/smart_dynamic_hedge.cpp` binary end to end when a toolchain is available (skips gracefully otherwise), plus direct coverage of the explicit-binary-override and `auto_build: false` gating paths |
 | `smart-hedge-features` | `python/smart_hedge/features.py` | fixture-tested — 33 tests covering data-quality composition, missing-feature marking, the volume-z-score/trend-score history-and-floor guards |
 | `smart-hedge-store` | `python/smart_hedge/store.py` | fixture-tested — 20 tests, including one that directly corrupts a stored row via raw SQL and confirms replay detects the tamper |
-| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema, `HeuristicAdvisor`, `OpenAIAdvisor`) | fixture-tested + real end-to-end tests — 43 tests, including exact transcriptions of `tests/test_model_schema.py`'s cases and 4 tests that make a real HTTP round trip against a local mock OpenAI server (the live `api.openai.com` endpoint itself still isn't exercised — see `SDH-LLR-056`) |
-| `smart-hedge-data` | `python/smart_hedge/data.py` (`SyntheticProvider`, `AlpacaReadOnlyProvider`, evidence-file/FRED/RSS loading) | fixture-tested + real end-to-end tests — 92 tests, including a hand-rolled, DTD/entity-free RSS/Atom XML extractor tested against CDATA, XML entities, and a deliberate XXE-attempt fixture that proves the entity is never expanded, plus 6 tests making real HTTP round trips against local mock Alpaca/FRED/RSS servers |
-| `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end integration tests — 25 tests, including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, and both branches of the adviser-failure/fallback path via a deliberately-failing `Advisor` stub |
+| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema, `HeuristicAdvisor`, `OpenAIAdvisor`) | fixture-tested + real end-to-end + adversarial tests — 46 tests, including exact transcriptions of `tests/test_model_schema.py`'s cases, real HTTP round trips against a local mock OpenAI server, and a battery of a dozen deliberately hostile fake model outputs (the live `api.openai.com` endpoint itself still isn't exercised — see `SDH-LLR-056`) |
+| `smart-hedge-data` | `python/smart_hedge/data.py` (`SyntheticProvider`, `AlpacaReadOnlyProvider`, evidence-file/FRED/RSS loading) | fixture-tested + real end-to-end + adversarial tests — 99 tests, including a hand-rolled, DTD/entity-free RSS/Atom XML extractor tested against CDATA, XML entities, and a deliberate XXE-attempt fixture that proves the entity is never expanded, real HTTP round trips against local mock Alpaca/FRED/RSS servers, adversarial-response batteries per provider, and a real XXE-driven-SSRF proof using an independent "canary" server that must never be contacted |
+| `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end + randomized workout tests — 26 tests, including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, both branches of the adviser-failure/fallback path, and a 25-iteration randomized "chaos" run (random symbols including unconfigured ones, boundary/out-of-range contract overrides, an unpredictably-failing adviser) asserting no panic and paper-only invariants hold throughout |
 | `smart-hedge-dashboard` | `python/smart_hedge/dashboard.py` | fixture-tested + real end-to-end integration tests — 32 tests, including 8 that bind a real ephemeral TCP port, run the real accept loop, and make real HTTP requests against it |
 | `smart-hedge-mcp` | `python/smart_hedge/mcp_server.py` | fixture-tested — 19 tests covering the JSON-RPC 2.0 envelope, all six tools, and the MCP-specific "tool failure is an `isError` result, not a protocol error" distinction |
 | `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand) | fixture-tested + real subprocess integration tests — 35 tests (26 unit + 9 integration), including spawning the real binary as `serve` and making a real HTTP request against it, and spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio |
+| `smart-hedge-audit` | (no Python equivalent — a new, repo-wide structural check) | 5 tests: a real scan of every `.rs` file in this workspace asserting none names or constructs an order-placement request, plus four self-tests proving the checker actually detects a planted violation rather than being vacuously true |
 
 **The full CLI surface — including `serve` (a real HTTP dashboard) and
 `mcp` (a real MCP stdio server) — is now a fully working, independently
@@ -34,7 +35,7 @@ once`), not just a set of tested libraries. It is not yet the program a
 user actually runs (`python/smart_hedge/cli.py` still is); cutover is a
 distinct, later decision.
 
-**Total: 389 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 405 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
 
 ### Testing the network providers without live credentials
@@ -58,6 +59,51 @@ transport error — fixed by draining the body per `Content-Length` first.
 Only the *live* third-party endpoints remain outside what an automated
 test can verify (no real credentials in CI).
 
+### Adversarial "workout" testing with fake data
+
+Beyond proving the happy path works, every network integration and the
+engine's full pipeline are also exercised with deliberately extreme,
+malformed, or hostile fake data — the point is to build confidence
+*before* ever pointing this at a real feed, not after:
+
+- **Alpaca**: 1e300-magnitude and negative prices, null OHLC fields,
+  non-JSON garbage, a 5,000-bar response, unicode in the timestamp field,
+  and a response larger than the size cap.
+- **FRED**: numeric-vs-string `value` types, the `.` no-data placeholder,
+  `null`, a value that overflows to `f64::INFINITY`, missing fields, and
+  500 observations (only the first is ever used).
+- **RSS**: truncated/malformed XML, 2,000-item feeds, unicode/emoji
+  content, `CDATA` sections containing markup, and — the most
+  security-relevant case — a feed whose `<!DOCTYPE>` declares an external
+  entity pointing at a second, independent local "canary" server (the
+  classic XXE-driven SSRF payload shape). The test asserts the canary is
+  *never contacted*, proving the no-DTD-support design decision holds
+  with a real, working HTTP client in the picture, not just in unit-level
+  parser output.
+- **OpenAI**: non-JSON model output, an extra `buy_shares`-shaped field,
+  evidence-ID arrays far past the schema cap, an absurd `band_multiplier`,
+  unicode/quote-heavy content, and an oversized response.
+- **Engine**: a 25-iteration randomized run (fixed-seed xorshift64 PRNG)
+  across random symbols — including one with no configured contract at
+  all — and boundary/out-of-range contract overrides, with an adviser
+  that fails ~25% of calls unpredictably. Every iteration must either
+  succeed with `mode: "paper"`/`live_execution_allowed: false` and a
+  valid replay hash, or fail with one of a small, explicitly-allowed set
+  of error variants — anything else (including a panic) fails the test.
+
+Building this out found two more real bugs beyond the ones already
+documented below: an unbounded response-body read (see next paragraph),
+and confirmation that the existing size-cap fix actually engages under a
+genuinely oversized fake payload, not just in principle.
+
+**Response bodies are now capped**, matching Python's own defensive
+`response.read(2_000_000)`/`response.read(1_000_000)` calls in `data.py`
+— the initial `ureq` integration read every response with `.into_string()`
+unbounded, which would have let a misbehaving or hostile endpoint (an
+arbitrary operator-configured RSS feed URL, especially) exhaust memory.
+`smart_hedge_data::http_util::read_capped_body` (and a duplicated
+equivalent in `smart_hedge_model_advisor`) fixes this; see `SDH-LLR-157`.
+
 ## Requirements traceability
 
 This migration is tracked against a DO-178-inspired requirements-recovery
@@ -75,6 +121,10 @@ JSON parsing would be a worse security trade-off, not a better one), every
 crate forbids `unsafe_code` and warns on `clippy::all`
 (`[workspace.lints]`), and testing favors hand-rolled, dependency-free
 boundary/fuzz-smoke tests over pulling in `proptest`/`cargo-fuzz`.
+`smart-hedge-audit` is the same philosophy applied to a repo-wide
+structural property (no order-placement code path anywhere) instead of a
+single function's behavior — a plain-text scan over `cargo test`, not a
+dependency on a static-analysis framework.
 
 Two more crates add documented exceptions, same "worse trade-off to
 hand-roll than to depend on" reasoning:
@@ -190,6 +240,47 @@ production load, and the Python CLI (`python -m smart_hedge.cli`) remains
 the one actually in use — cutover is a distinct, deliberate future
 decision, not something this pass makes unilaterally.
 
+### Readiness for live testing
+
+"Live" here always means **live market/model data feeds while remaining
+in paper mode** — this repository has no order-placement capability at
+all, by design and now by an automatic repo-wide check
+(`smart_hedge_audit`, `SDH-LLR-158`); live order execution is out of
+scope for this repository entirely (see `docs/THREAT_MODEL.md` and
+`docs/ROADMAP.md` "V2 multi-repository expansion" — that capability lives
+exclusively in the separate `trade-guard-mcp` repository).
+
+What real-fake-data testing (this pass) has verified:
+
+- Every network integration's request-shaping and response-parsing code
+  survives a real HTTP round trip against a wide range of adversarial
+  fake responses without panicking, without exceeding its size cap, and
+  without ever resolving an XXE/SSRF-shaped payload.
+- The full engine pipeline survives many randomized fake scenarios without
+  panicking and without ever leaving paper mode.
+- The one structural safety property this whole system depends on (no
+  order-placement code path) is checked automatically, not just asserted.
+
+What real-fake-data testing **cannot** verify, and real (live-data,
+paper-mode) testing would still need to confirm before relying on this
+port day to day:
+
+- The real Alpaca/FRED/RSS/OpenAI endpoints' actual current response
+  shapes match what this port's mocks assume — API behavior can drift
+  independently of this codebase.
+- Real-world timing/latency/rate-limit behavior under the real endpoints,
+  as opposed to a local mock server that always responds instantly.
+- Real credential handling end to end (this pass could only verify that
+  credentials are read correctly and never leaked into a payload — see
+  `openai::tests::build_payload_never_includes_a_secrets_field` — not that
+  they authenticate successfully against a live account).
+- Extended-duration/soak behavior beyond the ~25-iteration chaos test
+  (SQLite file growth, long-running `serve`/`mcp` process stability).
+
+None of the above blocks starting live-data testing — they're exactly the
+things live-data testing exists to check, not gaps this pass could have
+closed with more fake data.
+
 ## Building and testing
 
 ```bash
@@ -201,4 +292,8 @@ cargo clippy --workspace
 
 A `.cargo/config.toml` disables incremental compilation — see the comment
 in that file; it works around this development machine's antivirus
-intermittently corrupting incremental build artifacts.
+intermittently corrupting incremental build artifacts. The same overhead
+means `cargo test --workspace` takes a couple of minutes here (dominated
+by `smart-hedge-core-bridge`'s real-toolchain test and
+`smart-hedge-engine`'s chaos workout, each doing real subprocess/file-
+system round trips) — a machine without that overhead will be faster.

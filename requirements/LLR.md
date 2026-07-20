@@ -495,6 +495,15 @@ out of reach for an automated test), but it closes the larger gap: the
 wire-format contract itself is now exercised end-to-end, not just
 constructed in memory.
 
+**Second addendum (2026-07-19, later still):**
+`openai::tests::assess_survives_a_battery_of_adversarial_model_outputs`
+runs `assess` against a dozen deliberately hostile fake model responses
+(non-JSON `output_text`, an extra `buy_shares`-shaped field, evidence-ID
+arrays far past the cap, an absurd `band_multiplier`, unicode/quote-heavy
+content) over real HTTP, asserting only "never panics" — plus a dedicated
+oversized-response test proving the new `SDH-LLR-157` size cap actually
+engages here, not just in principle.
+
 ### SDH-LLR-057 — Fallback-to-heuristic is configuration-gated
 Statement: When the active adviser raises, the engine shall fall back to
 `HeuristicAdvisor` and record the fallback reason only when
@@ -632,6 +641,19 @@ applies to the Rust port).
 Verifying tests: Rust `integration_tests::recommendation_and_health_report_the_synthetic_heuristic_path`
 asserts both fields on a real end-to-end decision and on `health()`.
 
+**Correction (2026-07-19, later the same day): the structural gap this
+entry flagged is closed.** `SDH-LLR-158` is the automatic flip this entry
+said didn't exist: `smart_hedge_audit` fails `cargo test` the moment any
+Rust source names or constructs an order-placement request, anywhere in
+the workspace — not a promise nobody re-checks, an assertion re-verified
+on every test run. The `false` literals in `recommendation`/`health`
+themselves are still hardcoded, not computed (that part of the original
+statement is accurate and unchanged), but "nothing prevents [it] from
+silently going stale" is no longer true: `smart_hedge_audit` is exactly
+that prevention. Status remains **Partial** in spirit (Python isn't
+covered by the automated check, only manually re-verified — see
+`SDH-LLR-158`), but the Rust side of this gap is closed.
+
 ### SDH-LLR-081 — Alpaca provider is data-only
 Statement: `AlpacaReadOnlyProvider` shall construct requests only against
 the Alpaca market-data host and only for quote/bar GET endpoints; it
@@ -659,6 +681,14 @@ and `alpaca::tests::snapshot_surfaces_a_real_http_error_from_the_quote_endpoint`
 Confirms the request paths (`/v2/stocks/{symbol}/quotes/latest`,
 `/v2/stocks/{symbol}/bars`) and query parameters are exactly what a real
 server would need to see, not just what the unit-level fixtures assume.
+
+**Second addendum (2026-07-19, later still):**
+`alpaca::tests::snapshot_survives_a_battery_of_adversarial_alpaca_responses`
+runs `snapshot` against ten deliberately extreme/malformed fake responses
+(1e300-magnitude prices, negative prices, a null OHLC field, non-JSON
+garbage, a 5,000-bar response, unicode in the timestamp field) over real
+HTTP, asserting only "never panics" — plus a dedicated oversized-response
+test proving the new `SDH-LLR-157` size cap actually engages here.
 
 ### SDH-LLR-082 — MCP tool set contains no order-capable tool
 Statement: The MCP server shall expose exactly `health`,
@@ -862,6 +892,22 @@ connection, which raced with `ureq` still writing it and produced an
 intermittent (~1-in-5) spurious transport error — fixed by draining the
 body per `Content-Length` first, the same defensive pattern
 `smart-hedge-dashboard`'s own request parser already used.
+
+**Third addendum (2026-07-19, later still):** the same pass surfaced a
+second real gap — `data.py`'s defensive `response.read(N)` body-size caps
+had no Rust equivalent at all — now fixed and tracked separately as
+`SDH-LLR-157`. It also added adversarial-response batteries for FRED
+(`fred::tests::load_fred_evidence_survives_a_battery_of_adversarial_responses`
+— a bare JSON number for `value`, the `.` placeholder, `null`, a value
+that overflows to `f64::INFINITY`, 500 observations) and, most notably,
+a dedicated security-relevant test for RSS:
+`rss::tests::load_rss_evidence_never_triggers_an_xxe_driven_ssrf_request`
+spins up a second, independent local "canary" server, serves a feed whose
+`<!DOCTYPE>` declares an external entity pointing at that canary (the
+classic XXE-driven SSRF payload shape), and asserts the canary is never
+contacted — proving the `rss_xml` design decision (no DTD/entity support
+at all) holds with a real, working HTTP client in the picture, not just
+in the parser's unit-tested output text.
 
 ## Orchestration (traces to SDH-HLR-020, SDH-HLR-040, SDH-HLR-060, SDH-HLR-100, SDH-HLR-110)
 
@@ -1134,6 +1180,96 @@ built from only `strike`/`implied_volatility` via the same
 established — is a reasonable, directly-testable, documented judgment
 call for the same observable behavior (a pricing utility that works for
 any symbol), not a verified byte-for-byte match.
+
+## Defensive resource limits and repo-wide structural checks (traces to SDH-HLR-080, SDH-HLR-150)
+
+### SDH-LLR-157 — Network response bodies are read with a bounded size cap
+Statement: Every outbound HTTP response body this system reads (Alpaca,
+FRED, RSS, OpenAI) shall be capped at a fixed maximum byte count rather
+than read into memory unbounded — an oversized response is truncated
+(and, downstream, fails to parse) rather than being allowed to exhaust
+memory.
+Source: `python/smart_hedge/data.py` (`response.read(2_000_000)` for
+Alpaca, `response.read(1_000_000)` for FRED, `response.read(2_000_000)`
+for RSS — Python already does this).
+Rationale: An RSS feed URL in particular is arbitrary operator
+configuration, not a fixed trusted host — the most adversarial-input
+surface of the network providers. A misbehaving or actively hostile
+endpoint returning gigabytes of data must not be able to exhaust this
+process's memory.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_data::http_util::read_capped_body`
+(Alpaca 2,000,000 bytes; FRED 1,000,000; RSS 2,000,000, all matching
+Python exactly) and `smart_hedge_model_advisor::http_util::read_capped_body`
+(OpenAI, 5,000,000 bytes — Python's `openai` SDK client imposes no
+explicit cap here, since it isn't a hand-rolled fetch the way `data.py`'s
+Alpaca/FRED/RSS calls are, so this bound is a Rust-side hardening choice
+beyond parity, not a matched behavior).
+Verifying tests: Rust `http_util::tests::a_response_larger_than_the_cap_is_truncated_not_unbounded`,
+`alpaca::tests::snapshot_is_protected_from_an_oversized_response_body`,
+`openai::tests::assess_is_protected_from_an_oversized_response_body`.
+
+**Correction (2026-07-19, found while building the fake-data workout
+tests below):** this crate's initial `ureq` integration used
+`.into_string()` directly on every response, with no size bound at all —
+a real gap versus Python's own defensive `read(N)` calls, not merely an
+untested edge case. Found and fixed in the same pass that added the
+adversarial-response test batteries, per the user's direction to "give
+the system a real workout" with fake data before considering it ready for
+further testing.
+
+### SDH-LLR-158 — Repo-wide structural check: no order-placement code path
+Statement: No source file in this repository's actively-maintained Rust
+workspace shall name or construct an order-placement request (a
+`place_order`/`submit_order`/`cancel_order`-shaped identifier, a broker
+order-endpoint path, or a mutating HTTP verb — `PUT`/`PATCH`/`DELETE` —
+anywhere, or `POST` outside the one file that legitimately needs it, the
+OpenAI adviser). This is checked automatically, not just asserted in
+prose.
+Source: conversation, 2026-07-19 (closing `SDH-LLR-080`'s previously-open
+structural gap: "if an order endpoint were ever added elsewhere, nothing
+here would automatically flip [it] to true").
+Rationale: `SDH-HLR-010`/`SDH-HLR-140` are self-asserted invariants
+everywhere else in this codebase (a hardcoded `false` literal); this is
+the one place that actually re-verifies the invariant against the real
+source tree on every `cargo test` run, rather than trusting that nobody
+ever adds a violating line without noticing.
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_audit::scan_file`/`collect_rust_files`
+(a dedicated crate with no dependencies, walking every `.rs` file under
+`rust/crates/`, skipping each file's own `mod tests` block by convention —
+see that crate's doc comment for the exact heuristic and its limits).
+`python/` and `cpp/` were manually re-checked for the same patterns while
+writing this crate (both clean — the C++ core has no networking
+capability at all per `SDH-LLR-100`) but are not covered by this
+crate's automated, repeatable check, since Python is scheduled for
+cutover and the C++ core is not actively growing.
+Verifying tests: Rust `smart_hedge_audit`'s
+`tests::no_production_rust_source_names_or_constructs_an_order_placement_request`
+(the real check) plus four self-tests proving the checker itself actually
+detects a planted violation, correctly ignores mentions inside test code,
+and correctly allows the one legitimate `POST` call site — a check that
+can't be shown to catch anything is worth less than no check at all.
+
+### SDH-LLR-159 — Full-pipeline randomized workout never panics or leaves paper mode
+Statement: Running the full engine (`recommendation` → `replay`) against
+many randomized symbol/contract-override combinations — including
+unconfigured symbols, boundary and out-of-range numeric overrides, and an
+adviser that fails unpredictably — shall never panic, shall always report
+`mode: "paper"` and `live_execution_allowed: false` on success, and shall
+always replay with a valid content hash.
+Source: conversation, 2026-07-19 ("give the system a real workout" with
+fake data before considering it ready for further testing).
+Verification: Test. Status: Implemented.
+Implementation: Rust `smart_hedge_engine`'s `chaos_tests` module — a
+hand-rolled, fixed-seed xorshift64 PRNG (same construction as
+`smart_hedge_models::time_util`'s fuzz-smoke test) generating scenarios,
+run against the real deterministic core and a real SQLite store.
+Verifying tests: Rust `chaos_tests::chaos_workout_many_randomized_scenarios_never_panic_and_stay_paper_only`
+(25 iterations per run — see that test's doc comment for why this
+particular count: each iteration is a real subprocess spawn plus two real
+SQLite connections, so it isn't free, and 25 was calibrated against this
+project's development machine's actual overhead, not chosen arbitrarily).
 
 ## Dependency minimization (traces to SDH-HLR-160)
 

@@ -206,7 +206,8 @@ impl Advisor for OpenAIAdvisor {
             .timeout(self.timeout)
             .send_json(body)
             .map_err(|e| AdvisorError(format!("OpenAI request failed: {e}")))?;
-        let text_body = response.into_string().map_err(|e| AdvisorError(format!("failed to read response body: {e}")))?;
+        let text_body = crate::http_util::read_capped_body(response, 5_000_000)
+            .map_err(|e| AdvisorError(format!("failed to read response body: {e}")))?;
         let response_json: Value =
             serde_json::from_str(&text_body).map_err(|e| AdvisorError(format!("invalid JSON response: {e}")))?;
 
@@ -418,8 +419,8 @@ mod tests {
         assert_eq!(extract_output_text(&json!({"output": []})), None);
     }
 
-    fn valid_assessment_json() -> String {
-        serde_json::to_string(&json!({
+    fn valid_assessment_json_value() -> Value {
+        json!({
             "regime": "calm",
             "confidence": 0.7,
             "hedge_urgency": 0.3,
@@ -429,8 +430,11 @@ mod tests {
             "risks": [],
             "scenario_spot_shocks": [-0.05, 0.05],
             "data_requests": []
-        }))
-        .unwrap()
+        })
+    }
+
+    fn valid_assessment_json() -> String {
+        serde_json::to_string(&valid_assessment_json_value()).unwrap()
     }
 
     fn responses_api_body(id: &str, output_text: &str) -> String {
@@ -495,5 +499,110 @@ mod tests {
 
         let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
         assert!(result.is_err());
+    }
+
+    /// A "give it a real workout" battery: deliberately malformed,
+    /// out-of-spec, or hostile fake model outputs, each served over a
+    /// real local HTTP round trip through the actual Responses API
+    /// envelope. The only universal invariant is "never panic, and never
+    /// accept a schema-invalid assessment" — this is exactly the boundary
+    /// `SDH-HLR-080` depends on (the model's output schema has no field
+    /// capable of specifying an order), so it has to hold under real
+    /// adversarial-shaped input, not just the one or two hand-picked cases
+    /// elsewhere.
+    #[test]
+    fn assess_survives_a_battery_of_adversarial_model_outputs() {
+        let extra_field = serde_json::to_string(&{
+            let mut v = valid_assessment_json_value();
+            v["buy_shares"] = json!(1_000_000);
+            v
+        })
+        .unwrap();
+        let huge_evidence_ids = serde_json::to_string(&{
+            let mut v = valid_assessment_json_value();
+            v["evidence_ids"] = json!((0..500).map(|i| format!("e{i}")).collect::<Vec<_>>());
+            v
+        })
+        .unwrap();
+        let overlong_summary = serde_json::to_string(&{
+            let mut v = valid_assessment_json_value();
+            v["summary"] = json!("x".repeat(50_000));
+            v
+        })
+        .unwrap();
+        let out_of_range_band = serde_json::to_string(&{
+            let mut v = valid_assessment_json_value();
+            v["band_multiplier"] = json!(999_999.0);
+            v
+        })
+        .unwrap();
+        let unicode_content = serde_json::to_string(&{
+            let mut v = valid_assessment_json_value();
+            v["summary"] = json!("🚀 市場は不安定 — some risk 描述 with emoji 🎉 and \"quotes\" and \\backslashes\\");
+            v
+        })
+        .unwrap();
+
+        let cases: Vec<(&str, String)> = vec![
+            ("output_text_is_not_json_at_all", responses_api_body("r1", "definitely not json { garbage")),
+            ("output_text_is_a_json_array_not_object", responses_api_body("r2", "[1,2,3]")),
+            ("output_text_is_empty_string", responses_api_body("r3", "")),
+            ("output_missing_entirely", serde_json::to_string(&json!({"id": "r4"})).unwrap()),
+            ("output_is_null", serde_json::to_string(&json!({"id": "r5", "output": null})).unwrap()),
+            ("extra_unexpected_field", responses_api_body("r6", &extra_field)),
+            ("evidence_ids_far_exceeds_the_cap", responses_api_body("r7", &huge_evidence_ids)),
+            ("wildly_overlong_summary", responses_api_body("r8", &overlong_summary)),
+            ("band_multiplier_absurdly_out_of_range", responses_api_body("r9", &out_of_range_band)),
+            ("unicode_and_quote_heavy_content", responses_api_body("r10", &unicode_content)),
+            ("top_level_response_is_not_json", "not even json".to_string()),
+            ("top_level_response_is_a_bare_array", "[]".to_string()),
+        ];
+
+        for (name, body) in cases {
+            let port = crate::mock_http_test_support::start(200, body);
+            let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+            let snapshot = base_snapshot(vec![]);
+            let features = base_features();
+            let core = base_core();
+            let contract = base_contract();
+
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| advisor.assess(&snapshot, &features, &core, &contract)));
+            match outcome {
+                Ok(_) => {}
+                Err(_) => panic!("case {name:?} PANICKED instead of returning a Result"),
+            }
+        }
+    }
+
+    /// `unicode_and_quote_heavy_content` above is expected to *succeed*
+    /// (unicode/quotes/backslashes are all legal in a JSON string) —
+    /// verified separately so the battery test above can stay focused on
+    /// "never panics" without also asserting per-case pass/fail.
+    #[test]
+    fn assess_accepts_unicode_and_quote_heavy_but_otherwise_valid_content() {
+        let mut value = valid_assessment_json_value();
+        value["summary"] = json!("🚀 市場は不安定 — some risk 描述 with emoji 🎉 and \"quotes\" and \\backslashes\\");
+        let body = responses_api_body("r-unicode", &serde_json::to_string(&value).unwrap());
+        let port = crate::mock_http_test_support::start(200, body);
+        let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+
+        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        assert!(result.is_ok(), "expected unicode/quote-heavy but schema-valid content to be accepted, got {result:?}");
+    }
+
+    /// The response-body size cap (`http_util::read_capped_body`) is real
+    /// here too: an oversized response must not be read into memory in
+    /// full, and the resulting truncated (invalid) JSON must fail
+    /// cleanly.
+    #[test]
+    fn assess_is_protected_from_an_oversized_response_body() {
+        let huge = responses_api_body("r-huge", &"x".repeat(6_000_000));
+        assert!(huge.len() > 5_000_000, "fixture should exceed the 5,000,000-byte cap to be a meaningful test");
+        let port = crate::mock_http_test_support::start(200, huge);
+        let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+
+        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        assert!(result.is_err(), "a truncated (oversized) response should fail cleanly, not succeed");
     }
 }

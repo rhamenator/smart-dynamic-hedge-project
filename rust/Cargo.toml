@@ -13,6 +13,7 @@ members = [
   "crates/smart-hedge-cli",
   "crates/smart-hedge-dashboard",
   "crates/smart-hedge-mcp",
+  "crates/smart-hedge-audit",
 ]
 
 [workspace.package]

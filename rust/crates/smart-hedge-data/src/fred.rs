@@ -81,7 +81,8 @@ fn fetch_observations(base_url: &str, series_id: &str, api_key: &str, timeout: D
         .timeout(timeout)
         .call()
         .map_err(|e| e.to_string())?;
-    let text = response.into_string().map_err(|e| e.to_string())?;
+    // Matches Python's `response.read(1_000_000)` cap — see `http_util`.
+    let text = crate::http_util::read_capped_body(response, 1_000_000)?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
@@ -257,5 +258,51 @@ mod tests {
         assert_eq!(evidence.len(), 1);
         assert_eq!(evidence[0].kind, "data_quality");
         assert_eq!(evidence[0].evidence_id, "fred-error-VIXCLS");
+    }
+
+    /// A "give it a real workout" battery: deliberately extreme,
+    /// malformed, or hostile fake FRED responses, each served over a real
+    /// local HTTP round trip. The only universal invariant is "never
+    /// panic, always produce exactly one evidence item per series".
+    #[test]
+    fn load_fred_evidence_survives_a_battery_of_adversarial_responses() {
+        let bodies: Vec<(&str, String)> = vec![
+            ("value_as_a_bare_json_number", r#"{"observations": [{"date": "2026-07-18", "value": 18.5}]}"#.to_string()),
+            ("value_is_the_dot_placeholder", r#"{"observations": [{"date": "2026-07-18", "value": "."}]}"#.to_string()),
+            ("value_is_null", r#"{"observations": [{"date": "2026-07-18", "value": null}]}"#.to_string()),
+            ("date_field_missing", r#"{"observations": [{"value": "18.5"}]}"#.to_string()),
+            ("observations_is_empty", r#"{"observations": []}"#.to_string()),
+            ("observations_field_missing", r#"{}"#.to_string()),
+            ("top_level_is_a_json_array", r#"[1, 2, 3]"#.to_string()),
+            ("value_overflows_to_infinity", r#"{"observations": [{"date": "2026-07-18", "value": "1e400"}]}"#.to_string()),
+            ("value_is_negative", r#"{"observations": [{"date": "2026-07-18", "value": "-999.25"}]}"#.to_string()),
+            ("non_json_garbage_body", "<html>not json</html>".to_string()),
+            ("empty_body", String::new()),
+            (
+                "many_observations_only_first_used",
+                format!(
+                    r#"{{"observations": [{}]}}"#,
+                    (0..500)
+                        .map(|i| format!(r#"{{"date": "2026-07-{:02}", "value": "{i}.0"}}"#, 1 + (i % 28)))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+            ),
+        ];
+
+        for (name, body) in bodies {
+            let port = crate::mock_http_test_support::start(vec![("/fred/series/observations", (200, "application/json", body))]);
+            let base_url = format!("http://127.0.0.1:{port}/fred/series/observations");
+            let loaded = config_with_fred(r#"{"enabled": true, "series": ["VIXCLS"]}"#);
+
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                load_fred_evidence_with_base(&loaded, Some("dummy-key"), &base_url)
+            }));
+            let evidence = match outcome {
+                Ok(e) => e,
+                Err(_) => panic!("case {name:?} PANICKED"),
+            };
+            assert_eq!(evidence.len(), 1, "case {name:?}: expected exactly one evidence item, got {evidence:?}");
+        }
     }
 }

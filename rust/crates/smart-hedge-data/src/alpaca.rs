@@ -63,7 +63,8 @@ impl AlpacaReadOnlyProvider {
             request = request.query(key, value);
         }
         let response = request.call().map_err(|e| DataError::Http(e.to_string()))?;
-        let text = response.into_string().map_err(|e| DataError::Http(e.to_string()))?;
+        // Matches Python's `response.read(2_000_000)` cap — see `http_util`.
+        let text = crate::http_util::read_capped_body(response, 2_000_000).map_err(DataError::Http)?;
         let decoded: Value = serde_json::from_str(&text).map_err(|e| DataError::InvalidJson(e.to_string()))?;
         if !decoded.is_object() {
             return Err(DataError::UnexpectedResponse("expected a JSON object".to_string()));
@@ -341,5 +342,108 @@ mod tests {
         let provider = AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap();
         let result = provider.snapshot("SPY");
         assert!(matches!(result, Err(DataError::Http(_))));
+    }
+
+    fn provider_against_mock(routes: Vec<(&'static str, (u16, &'static str, String))>) -> AlpacaReadOnlyProvider {
+        let port = crate::mock_http_test_support::start(routes);
+        let dir = std::env::temp_dir().join(format!("smart-hedge-data-alpaca-adversarial-{}-{port}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            format!(r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#),
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap()
+    }
+
+    /// A "give it a real workout" battery: a wide range of deliberately
+    /// extreme, malformed, or outright hostile fake Alpaca responses, each
+    /// served over a real local HTTP round trip. The only universal
+    /// invariant is "never panic, always return a `Result`" — some cases
+    /// are expected to succeed (with unusual-but-not-invalid data), others
+    /// to fail cleanly. This is fake data standing in for what a real,
+    /// possibly-misbehaving upstream could plausibly send, exercised
+    /// before ever pointing this at a real feed.
+    #[test]
+    fn snapshot_survives_a_battery_of_adversarial_alpaca_responses() {
+        let good_quote = r#"{"quote": {"bp": 100.0, "ap": 100.5, "t": "2026-07-19T20:00:00Z"}}"#.to_string();
+        let bars_prefix = r#"{"bars": ["#;
+
+        let cases: Vec<(&str, String, String)> = vec![
+            (
+                "extreme_magnitude_prices",
+                good_quote.clone(),
+                format!(r#"{bars_prefix}{{"t":"2026-07-19T20:00:00Z","o":1e300,"h":1e300,"l":1e-300,"c":1e300,"v":1e300}}]}}"#),
+            ),
+            (
+                "negative_prices",
+                good_quote.clone(),
+                format!(r#"{bars_prefix}{{"t":"2026-07-19T20:00:00Z","o":-5.0,"h":-1.0,"l":-10.0,"c":-2.0,"v":100}}]}}"#),
+            ),
+            ("empty_bars_array", good_quote.clone(), r#"{"bars": []}"#.to_string()),
+            ("bars_field_missing_entirely", good_quote.clone(), r#"{}"#.to_string()),
+            (
+                "a_null_price_field",
+                good_quote.clone(),
+                format!(r#"{bars_prefix}{{"t":"2026-07-19T20:00:00Z","o":null,"h":1.0,"l":0.5,"c":0.9,"v":100}}]}}"#),
+            ),
+            ("non_json_garbage_body", good_quote.clone(), "<html>not json at all</html>".to_string()),
+            ("top_level_json_array_not_object", good_quote.clone(), "[1, 2, 3]".to_string()),
+            ("empty_body", good_quote.clone(), String::new()),
+            (
+                "many_bars_five_thousand",
+                good_quote.clone(),
+                format!(
+                    "{{\"bars\": [{}]}}",
+                    (0..5000)
+                        .map(|i| format!(r#"{{"t":"2026-07-19T20:{:02}:00Z","o":1.0,"h":1.1,"l":0.9,"c":1.0,"v":10}}"#, i % 60))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+            ),
+            (
+                "unicode_content_in_timestamp",
+                good_quote.clone(),
+                format!("{bars_prefix}{{\"t\":\"2026-07-19T20:00:00Z \u{1F680}\u{65E5}\u{672C}\u{8A9E}\",\"o\":1.0,\"h\":1.1,\"l\":0.9,\"c\":1.0,\"v\":10}}]}}"),
+            ),
+        ];
+
+        for (name, quote_body, bars_body) in cases {
+            let provider = provider_against_mock(vec![
+                ("/v2/stocks/SPY/quotes/latest", (200, "application/json", quote_body)),
+                ("/v2/stocks/SPY/bars", (200, "application/json", bars_body)),
+            ]);
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| provider.snapshot("SPY")));
+            assert!(outcome.is_ok(), "case {name:?} PANICKED instead of returning a Result");
+        }
+    }
+
+    /// The response-body size cap (`http_util::read_capped_body`) is real,
+    /// not just documented: a response far larger than the cap must not
+    /// be read into memory in full, and the resulting truncated (and
+    /// therefore invalid) JSON must fail cleanly, not hang or panic.
+    #[test]
+    fn snapshot_is_protected_from_an_oversized_response_body() {
+        let huge_bars = format!(
+            "{{\"bars\": [{}",
+            (0..200_000)
+                .map(|i| format!(r#"{{"t":"2026-07-19T20:00:00Z","o":{i}.0,"h":{i}.1,"l":{i}.0,"c":{i}.0,"v":10}}"#))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        assert!(huge_bars.len() > 2_000_000, "fixture should exceed the 2,000,000-byte cap to be a meaningful test");
+
+        let provider = provider_against_mock(vec![
+            ("/v2/stocks/SPY/quotes/latest", (200, "application/json", r#"{"quote": {}}"#.to_string())),
+            ("/v2/stocks/SPY/bars", (200, "application/json", huge_bars)),
+        ]);
+        let result = provider.snapshot("SPY");
+        // Truncated mid-array is invalid JSON, so this must fail cleanly
+        // (not hang, not panic, not silently succeed with a half-parsed
+        // bars list).
+        assert!(matches!(result, Err(DataError::InvalidJson(_))), "expected a clean InvalidJson error, got {result:?}");
     }
 }
