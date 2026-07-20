@@ -58,6 +58,10 @@ smart-hedge tools: read-only data / C++ calculation / recommendation
    └── local or append-only decision store
 ```
 
-For this prototype, the official Python MCP SDK is a smaller runnable surface.
-The Rust server becomes worthwhile when remote multi-client operation,
-backpressure, Prometheus, and durable audit are needed.
+This repository's own MCP server (`smart-hedge mcp`, part of the Rust
+`smart-hedge-mcp` crate) is a hand-rolled stdio JSON-RPC transport — a
+smaller runnable surface than `request-guard-mcp`'s Tokio/Axum WebSocket
+server. Adopting `request-guard-mcp`'s remote transport becomes worthwhile
+when remote multi-client operation, backpressure, Prometheus, and durable
+audit are needed; it is not needed for the current local-only stdio use
+case.

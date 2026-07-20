@@ -55,9 +55,11 @@ client.
 
 ### Supply-chain risk
 
-The C++ core uses only the standard library. Optional Python dependencies should
-be pinned and scanned before deployment. Run in an isolated virtual environment;
-do not expose the dashboard to an untrusted network.
+The C++ core uses only the standard library. The Rust workspace keeps its
+third-party dependencies deliberately minimal (`serde`/`serde_json`,
+`rusqlite`, `ureq`/`rustls`) — see `rust/README.md` "Dependency and testing
+policy" — and these should be kept current and scanned before deployment.
+Do not expose the dashboard to an untrusted network.
 
 ### Tampering with decision history
 

@@ -1,16 +1,21 @@
 # rust/
 
-Isolated Rust workspace: the Python-to-Rust migration described in
-`../docs/ROADMAP.md` "Language and dependency policy". Built with **zero
-changes to any existing Python or C++ file** — the strangler-fig pattern
-the user asked for: prove the Rust side out fully in isolation before
-deciding the cutover shape.
+The Rust workspace that implements this project, per the Python-to-Rust
+migration described in `../docs/ROADMAP.md` "Language and dependency
+policy". The migration followed a strangler-fig pattern — every module was
+proven out fully in isolation, with zero changes to the Python or C++ code,
+before cutover — and **cutover is now complete**: the `smart-hedge` binary
+built from this workspace is the only supported implementation. The former
+`python/` package and its `tests/` suite have been removed from the active
+tree; they remain available in git history for reference.
 
 ## Status
 
-Every module in `python/smart_hedge/` now has a Rust port — the migration
-is functionally complete; **cutover from Python is still a separate,
-undecided step** (see "Connecting it together" below).
+Every module that used to live in `python/smart_hedge/` now has a Rust
+port, and the port is what actually runs (see "Connecting it together"
+below). The table below documents provenance — the pre-cutover Python file
+each crate replaced — even though those files no longer exist in the
+working tree.
 
 | Crate | Ports | Status |
 |---|---|---|
@@ -31,9 +36,8 @@ undecided step** (see "Connecting it together" below).
 **The full CLI surface — including `serve` (a real HTTP dashboard) and
 `mcp` (a real MCP stdio server) — is now a fully working, independently
 runnable Rust program** (`cargo run -p smart_hedge_cli --bin smart-hedge --
-once`), not just a set of tested libraries. It is not yet the program a
-user actually runs (`python/smart_hedge/cli.py` still is); cutover is a
-distinct, later decision.
+once`), and it is the program a user actually runs: `python/smart_hedge/cli.py`
+has been removed as part of cutover.
 
 **Total: 405 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
@@ -220,25 +224,25 @@ visible until a real TCP/HTTP round trip was actually exercised.
   defines, unlike the *client* side (`ureq`/`rustls`), which parses
   arbitrary third-party HTTPS responses and genuinely needs a dependency.
 
-## Connecting it together (ported, not yet cut over)
+## Connecting it together (cutover complete)
 
 Per the plan agreed with the user: prove out each ported component fully
 isolated first, then decide the cutover shape once more of the system
-exists. Current direction (see `docs/ROADMAP.md`): a standalone Rust
-`smart-hedge` binary (CLI + dashboard + MCP server) that eventually
-replaces the Python package outright, not a PyO3 embedding — the latter
-would keep a Python runtime in production permanently, which contradicts
-the goal of getting away from Python.
+exists. That decision has now been made and executed (see `docs/ROADMAP.md`):
+a standalone Rust `smart-hedge` binary (CLI + dashboard + MCP server) has
+replaced the Python package outright — not a PyO3 embedding, which would
+have kept a Python runtime in production permanently, contradicting the
+goal of getting away from Python.
 
-`smart-hedge-cli` is that binary, and every subcommand `cli.py` has is now
-implemented: `build-core`, `once`, `loop`, `replay`, `recent`, `self-test`,
-`serve` (a real HTTP dashboard, hand-rolled server), and `mcp` (a real MCP
-stdio server, hand-rolled JSON-RPC). The network-backed providers/adviser
-(Alpaca, FRED, RSS, OpenAI) are implemented against real HTTPS endpoints
-via `ureq`/`rustls`. Nothing here has been benchmarked or run under real
-production load, and the Python CLI (`python -m smart_hedge.cli`) remains
-the one actually in use — cutover is a distinct, deliberate future
-decision, not something this pass makes unilaterally.
+`smart-hedge-cli` is that binary, and every subcommand the former `cli.py`
+had is implemented: `build-core`, `once`, `loop`, `replay`, `recent`,
+`self-test`, `serve` (a real HTTP dashboard, hand-rolled server), and `mcp`
+(a real MCP stdio server, hand-rolled JSON-RPC). The network-backed
+providers/adviser (Alpaca, FRED, RSS, OpenAI) are implemented against real
+HTTPS endpoints via `ureq`/`rustls`. Nothing here has been benchmarked or
+run under real production load or against genuinely live market/model
+feeds yet — see "Readiness for live testing" below for exactly what has and
+hasn't been verified so far.
 
 ### Readiness for live testing
 

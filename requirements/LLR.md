@@ -3,8 +3,13 @@
 Each entry traces to a parent HLR in `HLR.md`. See `README.md` for scope
 and the shared methodology in `market-system-contracts`'s
 `docs/REQUIREMENTS_METHODOLOGY.md`. `Implementation`/`Verifying tests` list
-Python and Rust separately where both exist; `not yet ported` marks
-Python-only behavior.
+Python and Rust separately where both existed at the time an entry was
+written; `not yet ported` marked Python-only behavior before the cutover.
+**Cutover note (2026-07-19): Python has since been removed from the active
+tree — see `README.md` "Cutover note" for what that does and doesn't change
+about the entries below.** `python/...` source citations remain as
+historical provenance (recoverable via git history), not as references to
+files that still exist.
 
 ## Policy gate blockers (traces to SDH-HLR-040, SDH-HLR-050)
 
@@ -1250,6 +1255,14 @@ Verifying tests: Rust `smart_hedge_audit`'s
 detects a planted violation, correctly ignores mentions inside test code,
 and correctly allows the one legitimate `POST` call site — a check that
 can't be shown to catch anything is worth less than no check at all.
+
+**Correction (2026-07-19, later the same day): `python/` no longer exists.**
+The cutover from Python to Rust happened immediately after this recovery
+pass closed; `python/` and `tests/` were removed from the active tree
+(recoverable via git history). The manual re-check described above is now
+moot rather than a live gap — there is no Python source left to scan. The
+automated `smart_hedge_audit` check remains the sole, sufficient coverage
+for this requirement.
 
 ### SDH-LLR-159 — Full-pipeline randomized workout never panics or leaves paper mode
 Statement: Running the full engine (`recommendation` → `replay`) against

@@ -55,3 +55,20 @@ real behavior exists in the code with no (or an incomplete) automated test
 proving it — this recovery pass surfaces those gaps rather than papering
 over them. Closing them is future work, tracked the same way any other gap
 is.
+
+## Cutover note (2026-07-19, after this recovery pass)
+
+The "Current recovery scope" and "Sources used" sections above describe
+this repository as it existed *during* the recovery pass, when the Python
+package (`python/smart_hedge/`) and its `tests/` suite were still present
+alongside the Rust port. The cutover from Python to Rust — anticipated but
+not yet decided at the time of that pass — has since happened: `python/`
+and `tests/` were removed from the active tree (recoverable via git
+history), and the `smart-hedge` binary built from `rust/` is now the sole
+running implementation. This note is appended rather than rewriting the
+sections above, per this project's own DO-178-recovery-methodology rule
+that corrections must be documented, not silently applied. Every LLR that
+traced to a Python source file traces equally to that file's historical
+git-log content; no requirement's substance changed because of the
+cutover, only which file on disk currently satisfies it (see
+`TRACEABILITY.md` and `LLR.md` for the equivalent per-requirement notes).

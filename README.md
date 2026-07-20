@@ -1,9 +1,9 @@
 # Smart Dynamic Hedge
 
 A paper-only, replayable dynamic-hedging research lab. It combines a deterministic
-C++ option/Greeks engine with Python data adapters, feature extraction, an optional
-LLM regime adviser, a non-model policy gate, a local browser dashboard, an MCP
-server, and a SQLite audit log.
+C++ option/Greeks engine with a Rust `smart-hedge` binary for data adapters,
+feature extraction, an optional LLM regime adviser, a non-model policy gate, a
+local browser dashboard, an MCP server, and a SQLite audit log.
 
 The project deliberately **does not contain a broker order endpoint**. It can read
 market data and display a hypothetical stock-hedge preview, but it cannot place or
@@ -130,8 +130,8 @@ news can be added without changing the C++ or policy contracts.
 policy tests.
 
 `openai` sends a bounded, redacted evidence packet to the OpenAI Responses API and
-requests a strict JSON-schema result. API keys are used by the Python client and
-are never inserted into model input or the audit record. The model name is
+requests a strict JSON-schema result. API keys are used by the Rust HTTP client
+and are never inserted into model input or the audit record. The model name is
 configuration, not code, because ChatGPT product labels and API model identifiers
 need not be the same.
 
@@ -154,9 +154,9 @@ credential-management tool.
 Requirements:
 
 * CMake 3.16+ and a C++17 compiler, or just `g++`/`clang++`.
-* Python 3.11+.
+* A stable Rust toolchain (`cargo`).
 
-Build and run without installing any Python package:
+Build and run without any Python involved:
 
 ```bash
 cd smart_dynamic_hedge
@@ -164,9 +164,10 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j
 ctest --test-dir build --output-on-failure
 
-PYTHONPATH=python \
+cargo build --release --manifest-path rust/Cargo.toml -p smart_hedge_cli
+
 SMART_HEDGE_CORE=build/smart_dynamic_hedge \
-python -m smart_hedge.cli --config config.example.json once --symbol SPY
+./rust/target/release/smart-hedge --config config.example.json once --symbol SPY
 ```
 
 Or:
@@ -181,14 +182,11 @@ it needs no market-data account and makes no paid model call.
 
 ## Browser dashboard
 
-Install the optional dependencies:
+The dashboard is built into the `smart-hedge` binary — no extra install step:
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate                    # Windows: .venv\Scripts\activate
-python -m pip install -e '.[dashboard]'
 make build
-smart-hedge --config config.example.json serve
+./rust/target/release/smart-hedge --config config.example.json serve
 ```
 
 Open `http://127.0.0.1:8765`. The dashboard displays the quote, model value,
@@ -200,14 +198,13 @@ every uncached refresh may cost money.
 
 ## OpenAI adviser
 
-Install the model extra and select a currently supported API model:
+Select a currently supported API model:
 
 ```bash
-python -m pip install -e '.[model]'
 export SMART_HEDGE_MODEL_KIND=openai
 export OPENAI_API_KEY='...'
 export OPENAI_MODEL='your-supported-api-model-id'
-smart-hedge --config config.example.json once --symbol SPY
+./rust/target/release/smart-hedge --config config.example.json once --symbol SPY
 ```
 
 The call uses the Responses API with a strict schema. On an API error, invalid
@@ -232,7 +229,7 @@ Create a configuration from `config.alpaca-readonly.example.json`, then set:
 ```bash
 export ALPACA_API_KEY_ID='...'
 export ALPACA_API_SECRET_KEY='...'
-smart-hedge --config config.alpaca-readonly.example.json once --symbol SPY
+./rust/target/release/smart-hedge --config config.alpaca-readonly.example.json once --symbol SPY
 ```
 
 Only Alpaca's market-data host is present in the adapter. Available feeds,
@@ -294,12 +291,11 @@ paper preview.
 
 ## MCP server
 
-Install the MCP extra and build the C++ binary:
+The MCP server is built into the `smart-hedge` binary:
 
 ```bash
-python -m pip install -e '.[mcp]'
 make build
-smart-hedge --config config.example.json mcp
+./rust/target/release/smart-hedge --config config.example.json mcp
 ```
 
 The default is stdio, minimizing network exposure. Adapt
@@ -348,6 +344,8 @@ target_stock_shares = -(contracts × multiplier × model_delta)
 make test
 ```
 
+This runs the C++ core's `ctest` suite and the Rust workspace's `cargo test`
+suite (see [`rust/README.md`](rust/README.md) for the full per-crate breakdown).
 The test suite checks:
 
 * a known Black–Scholes price and delta;
@@ -388,9 +386,12 @@ important missing pieces are a point-in-time option-chain adapter, exchange-grad
 calendar/corporate-action handling, dividend forecasts, paper fill simulation,
 portfolio-level aggregation, and a proper walk-forward backtester.
 
-A Python-to-Rust migration is also underway in an isolated `rust/` workspace
-(zero changes to `python/`/`cpp/` so far) — see [`rust/README.md`](rust/README.md)
-and `docs/ROADMAP.md` "Language and dependency policy" for status and plan.
+The implementation has completed its migration from Python to Rust: the `smart-hedge`
+binary built from the `rust/` workspace is now the only supported implementation.
+The C++ core (`cpp/smart_dynamic_hedge.cpp`) is unchanged and is still invoked by
+the Rust binary exactly as it was previously invoked by Python. See
+[`rust/README.md`](rust/README.md) and `docs/ROADMAP.md` "Language and dependency
+policy" for the crate breakdown and migration history.
 
 ## License
 

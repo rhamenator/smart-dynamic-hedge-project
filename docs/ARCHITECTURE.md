@@ -31,9 +31,10 @@ write target shares or approve an action.
 
 ## Why a subprocess boundary
 
-The C++ executable is intentionally a narrow deterministic service. Python can be
-restarted, instrumented, and extended without moving pricing logic into an LLM
-or web framework. A command-line JSON boundary is slower than shared memory but
+The C++ executable is intentionally a narrow deterministic service. The Rust
+orchestration layer can be restarted, instrumented, and extended without
+moving pricing logic into an LLM or web framework. A command-line JSON
+boundary is slower than shared memory but
 is adequate for human-scale debugging and gives each invocation explicit inputs.
 A production low-latency design could expose the same functions through a stable
 C ABI or a local gRPC service while retaining the trust boundary.

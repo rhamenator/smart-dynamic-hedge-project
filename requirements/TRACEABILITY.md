@@ -175,6 +175,21 @@ exists, **O** = Open (implemented but untested), **—** = not applicable
    live testing" for what's been verified and what real-credential testing
    would still need to confirm.
 
+## Cutover note (2026-07-19, after this pass)
+
+Item 4 above, and every "Nothing has cut over from Python" statement in
+"Summary", described a state that no longer holds: the cutover happened
+immediately after this recovery pass closed. `python/` and `tests/` were
+removed from the active tree (recoverable via git history); the Rust
+`smart-hedge` binary is now the sole running implementation. This note is
+appended rather than rewriting the sections above, per this project's own
+rule that corrections to a closed recovery pass must be documented, not
+silently applied. Practically, this makes item 1 moot (the Python **O**
+rows in the matrix above now describe a file that no longer exists in the
+working tree — read the `Python test` column as historical, not
+actionable) and resolves item 4. Items 2 and 3 are unaffected by the
+cutover and remain open.
+
 ## Closed this pass (previously listed here as open)
 
 - `SDH-LLR-031`/`-034` (explicit binary override, auto-build gating) now

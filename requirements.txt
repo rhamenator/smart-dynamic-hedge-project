@@ -1,6 +1,0 @@
-# The core CLI and synthetic demo use only Python's standard library.
-# These packages enable the browser dashboard, OpenAI adviser, and MCP server.
-fastapi>=0.115
-uvicorn[standard]>=0.34
-openai>=1.66
-mcp>=1.6

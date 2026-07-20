@@ -85,39 +85,43 @@ for this repository specifically:
   in option pricing is a much worse outcome than an extra language in the
   stack) without a speed or safety benefit — Rust and C++ are both
   "fastest practicable" for this workload.
-* **The Python orchestration layer
-  (`python/smart_hedge/{cli,config,core_bridge,dashboard,data,engine,
-  features,mcp_server,model_advisor,models,policy,store}.py`) is a
-  migration candidate to Rust.** Python is not in the fastest-practicable
-  tier (interpreter overhead, GIL), and `market-intelligence-mcp` /
-  `trade-guard-mcp` are already Rust — migrating this layer would let the
-  whole system share one toolchain, one dependency-minimization policy, and
-  one testing philosophy (see `market-intelligence-mcp`'s
+* **The Python orchestration layer that used to live in
+  `python/smart_hedge/{cli,config,core_bridge,dashboard,data,engine,
+  features,mcp_server,model_advisor,models,policy,store}.py` has been
+  migrated to Rust, and the cutover is complete (decided and executed
+  2026-07-19).** Python was not in the fastest-practicable tier
+  (interpreter overhead, GIL), and `market-intelligence-mcp` /
+  `trade-guard-mcp` are already Rust — migrating this layer let the whole
+  system share one toolchain, one dependency-minimization policy, and one
+  testing philosophy (see `market-intelligence-mcp`'s
   `market_intelligence_core::utc_timestamp` for the "hand-roll instead of
-  depending on `time`/`uuid`/`thiserror`" pattern this repo should copy).
-  **Status: first slice in progress.** `models.py`, `config.py`,
-  `policy.py`, and the resolve/build/invoke parts of `core_bridge.py` are
-  ported in an isolated `rust/` workspace with zero changes to any Python
-  or C++ file — see `rust/README.md` for exact status, test counts, and
-  documented behavioral differences. `cli.py`, `dashboard.py`, `data.py`,
-  `engine.py`, `features.py`, `mcp_server.py`, `model_advisor.py`, and
-  `store.py` are not yet ported, and nothing is wired to a real running
-  binary yet — strangler-fig approach, per the user: prove each piece out
-  fully isolated, then decide the cutover shape once more exists. Current
-  direction for that cutover: a standalone Rust `smart-hedge` binary
-  (matching `market-intelligence-mcp`'s shape) that eventually replaces the
-  Python package outright, not a PyO3 embedding (which would keep a Python
-  runtime in production permanently). No target date is set; it is not
-  blocking the V2 multi-repository work above.
-* Until the migration happens, keep the existing Python/C++ code's test
-  suite (`tests/test_engine.py`, `tests/test_model_schema.py`,
-  `tests/test_policy.py`) as the baseline and raise its rigor
-  incrementally (property/boundary tests, no-panic guarantees on malformed
-  model output) rather than leaving it while effort goes entirely to new
-  repositories.
-* This repository's `.venv`/`build/` artifacts and the `market-system-contracts`
-  schema-validation dev dependencies (`jsonschema`, `referencing`) remain
-  the only "many dependencies" surface in the system by design — Python
-  tooling dependencies are cheaper to accept than compiled-binary
-  dependencies, since this repo is not itself a compiled artifact shipped
-  to end users the way the Rust services are.
+  depending on `time`/`uuid`/`thiserror`" pattern this repo followed).
+  **Status: done.** Every module was ported in an isolated `rust/`
+  workspace with zero changes to any Python or C++ file while it was being
+  proven out (strangler-fig approach, per the user: prove each piece out
+  fully isolated, then decide the cutover shape once more exists), and a
+  DO-178-inspired requirements-traceability matrix
+  (`requirements/TRACEABILITY.md`) was closed for the Rust side before
+  cutover — see `rust/README.md` for exact crate/test-count status and
+  documented behavioral differences from the original Python. The cutover
+  itself replaced the Python package outright with a standalone Rust
+  `smart-hedge` binary (matching `market-intelligence-mcp`'s shape), not a
+  PyO3 embedding (which would have kept a Python runtime in production
+  permanently). The former `python/` package and `tests/` suite were
+  removed from the active tree as part of cutover; they remain available in
+  git history. The C++ core (`cpp/smart_dynamic_hedge.cpp`) is unaffected —
+  the Rust binary invokes it exactly as Python did.
+* The former Python/C++ test suite (`tests/test_engine.py`,
+  `tests/test_model_schema.py`, `tests/test_policy.py`) has been superseded
+  by the Rust workspace's `cargo test --workspace` suite, which transcribes
+  every case those files exercised plus substantial additional
+  property/boundary/adversarial coverage — see `rust/README.md`. The C++
+  core's own `ctest` suite is unchanged and still authoritative for the
+  option-pricing math.
+* With Python removed, the only third-party-dependency surface in this
+  repository is the Rust workspace's own minimized set (`serde`/
+  `serde_json`, `rusqlite` for SQLite, `ureq`/`rustls` for outbound HTTPS
+  clients only — see `rust/README.md` "Dependency and testing policy") plus
+  the `market-system-contracts` schema-validation dev dependencies
+  (`jsonschema`, `referencing`), which are that sibling repository's
+  concern, not this one's.

@@ -1,10 +1,9 @@
 {
   "mcpServers": {
     "smart-dynamic-hedge": {
-      "command": "python",
-      "args": ["-m", "smart_hedge.mcp_server"],
+      "command": "/absolute/path/to/smart_dynamic_hedge/rust/target/release/smart-hedge",
+      "args": ["mcp"],
       "env": {
-        "PYTHONPATH": "/absolute/path/to/smart_dynamic_hedge/python",
         "SMART_HEDGE_CONFIG": "/absolute/path/to/smart_dynamic_hedge/config.example.json",
         "SMART_HEDGE_CORE": "/absolute/path/to/smart_dynamic_hedge/build/smart_dynamic_hedge"
       }
