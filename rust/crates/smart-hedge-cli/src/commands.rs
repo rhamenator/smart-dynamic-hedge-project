@@ -334,6 +334,34 @@ pub fn cmd_guard_demo(
     }
 }
 
+/// Port of Phase 4's "C++ portfolio pricing/Greeks/hedging expansion":
+/// runs the (unchanged) C++ core once per symbol and prints both the
+/// per-position detail and the aggregated dollar-denominated portfolio
+/// summary — see `smart_hedge_portfolio`'s module doc comment for why the
+/// aggregates are dollar-denominated rather than raw share counts.
+pub fn cmd_portfolio(config_path: Option<PathBuf>, symbols: Vec<String>) -> Result<i32, CliError> {
+    let root = project_root()?;
+    let loaded = load_config(resolve_config_path(config_path), &root)?;
+    let cpp_source = cpp_source_path(&root);
+
+    let symbols = if symbols.is_empty() { loaded.config.contracts.keys().cloned().collect() } else { symbols };
+    if symbols.is_empty() {
+        return Err(CliError::Engine(smart_hedge_engine::EngineError::UnknownSymbol(
+            "no symbols given and no contracts configured".to_string(),
+        )));
+    }
+
+    let positions = smart_hedge_portfolio::build_portfolio(&loaded, &root, &cpp_source, &symbols)?;
+    let summary = smart_hedge_portfolio::summarize(&positions);
+
+    let output = json!({
+        "positions": positions,
+        "summary": summary,
+    });
+    println!("{}", serde_json::to_string_pretty(&output).expect("portfolio output is always serializable"));
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

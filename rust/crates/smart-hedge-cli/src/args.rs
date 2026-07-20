@@ -14,6 +14,7 @@ pub enum Command {
     Serve { host: Option<String>, port: Option<u16> },
     Mcp,
     GuardDemo { symbol: String, overrides: ContractOverrideArgs, intelligence_binary: Option<PathBuf>, guard_binary: Option<PathBuf> },
+    Portfolio { symbols: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -44,7 +45,7 @@ pub enum ArgsError {
 impl fmt::Display for ArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo)"),
+            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo, portfolio)"),
             Self::UnknownCommand(c) => write!(f, "unknown command: {c}"),
             Self::UnknownFlag { command, flag } => write!(f, "unknown flag {flag} for command {command}"),
             Self::MissingValueFor(flag) => write!(f, "{flag} requires a value"),
@@ -249,6 +250,11 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
             })?;
             Command::GuardDemo { symbol: symbol.to_uppercase(), overrides, intelligence_binary, guard_binary }
         }
+        "portfolio" => {
+            let positionals = FlagCursor::new(tail).run("portfolio", |_, _| Ok(false))?;
+            let symbols = positionals.iter().map(|s| s.to_uppercase()).collect();
+            Command::Portfolio { symbols }
+        }
         other => return Err(ArgsError::UnknownCommand(other.to_string())),
     };
 
@@ -448,5 +454,17 @@ mod tests {
                 guard_binary: Some(PathBuf::from("trade_guard_server")),
             }
         );
+    }
+
+    #[test]
+    fn portfolio_with_no_symbols_means_all_configured_contracts() {
+        let parsed = parse_args(&args(&["portfolio"])).unwrap();
+        assert_eq!(parsed.command, Command::Portfolio { symbols: vec![] });
+    }
+
+    #[test]
+    fn portfolio_symbols_are_uppercased() {
+        let parsed = parse_args(&args(&["portfolio", "spy", "qqq"])).unwrap();
+        assert_eq!(parsed.command, Command::Portfolio { symbols: vec!["SPY".to_string(), "QQQ".to_string()] });
     }
 }

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased (portfolio-level Greeks)
+
+Closes one of the five gaps `docs/ROADMAP.md` Phase 4 named as still open.
+
+- **New `smart-hedge-portfolio` crate**: calls the *unchanged* C++ core
+  once per configured position (`smart_hedge_core_bridge::run_core`,
+  exactly as `smart-hedge-engine::recommendation` already does for one
+  symbol) and aggregates the results into dollar-denominated portfolio
+  Greeks — dollar delta, dollar gamma P&L, dollar vega/theta/rho, stock
+  and option notional. Dollar-denominated deliberately: raw per-position
+  share counts (`target_stock_shares`) are not meaningfully additive
+  across different underlyings (SPY shares + QQQ shares isn't a
+  hedgeable number), but their dollar-equivalents are — the same
+  convention real portfolio risk systems use. No pricing math lives in
+  this crate; see its module doc comment.
+- **New `portfolio` CLI subcommand** (`smart-hedge portfolio [SYMBOL...]`,
+  defaulting to every configured contract when no symbols are given).
+  Verified against a real two-position config (SPY put + QQQ call): two
+  real C++ core invocations, correctly aggregated.
+- **6 new tests**, 425 total (was 419), `cargo clippy --workspace
+  --all-targets` clean.
+
 ## Unreleased (Phase 4 minimal slice: real cross-repository paper-guard integration)
 
 Implements the core of `docs/ROADMAP.md`'s Phase 4 — the gate that opened

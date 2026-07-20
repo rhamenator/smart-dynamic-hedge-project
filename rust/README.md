@@ -35,6 +35,7 @@ working tree.
 | `smart-hedge-mcp-client` | (no Python equivalent — new, for the V2 multi-repository integration) | fixture-tested + real end-to-end — 7 tests. A generic, dependency-free MCP stdio JSON-RPC client (spawn a server binary, one request per line, read one response line), the client-side counterpart to this workspace's own `smart-hedge-mcp` server. Tests spawn this repository's own `smart-hedge` binary as the server under test, so this crate's suite needs no sibling repository built. |
 | `smart-hedge-intelligence-client` | (no Python equivalent) | 1 test — a thin typed wrapper over `smart-hedge-mcp-client` for `market-intelligence-mcp`'s 11 read-only tools (`health`, `list-configured-sources`, `build-evidence-bundle`, etc.). |
 | `smart-hedge-guard-client` | (no Python equivalent) | fixture-tested — 4 tests, including `build_trade_intent`'s `decimal-string` formatting (`common.schema.json`'s exact grammar) verified against several boundary cases. A thin typed wrapper over `smart-hedge-mcp-client` for `trade-guard-mcp`'s `authorize-and-submit-paper-order` and account-snapshot tools. |
+| `smart-hedge-portfolio` | (no Python equivalent — Phase 4 "portfolio pricing/Greeks/hedging expansion") | fixture-tested + real end-to-end — 6 tests. Calls the *unchanged* C++ core once per position and aggregates into dollar-denominated portfolio Greeks (dollar delta, dollar gamma P&L, dollar vega/theta/rho, stock/option notional) — additive across different underlyings, unlike raw per-underlying share counts. No pricing math lives here; see the crate's own module doc comment for why that split matters. |
 
 **The full CLI surface — including `serve` (a real HTTP dashboard) and
 `mcp` (a real MCP stdio server) — is now a fully working, independently
@@ -52,7 +53,7 @@ simulator — three independently-built binaries from three separate
 repositories, talking over real subprocess/stdio boundaries, not fixtures.
 See "Connecting the three repositories" below.
 
-**Total: 419 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 425 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
 
 ### Testing the network providers without live credentials

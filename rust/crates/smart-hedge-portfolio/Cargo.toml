@@ -1,0 +1,17 @@
+[package]
+name = "smart_hedge_portfolio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+smart_hedge_config = { path = "../smart-hedge-config" }
+smart_hedge_core_bridge = { path = "../smart-hedge-core-bridge" }
+smart_hedge_engine = { path = "../smart-hedge-engine" }
+smart_hedge_models = { path = "../smart-hedge-models" }
+
+[lints]
+workspace = true

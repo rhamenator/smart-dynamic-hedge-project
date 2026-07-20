@@ -328,6 +328,20 @@ export TRADE_GUARD_MCP_BIN=/path/to/trade-guard-mcp/target/release/trade_guard_s
 See [`rust/README.md`](rust/README.md) "Connecting the three repositories"
 for exactly what this proves, what it doesn't, and the full flow.
 
+## Portfolio-level Greeks
+
+```bash
+./rust/target/release/smart-hedge --config config.example.json portfolio SPY QQQ
+```
+
+Calls the deterministic C++ core once per symbol (unchanged pricing math)
+and aggregates into dollar-denominated portfolio Greeks — dollar delta,
+dollar gamma P&L, dollar vega/theta/rho, stock and option notional.
+Omitting symbols uses every configured contract. See
+[`rust/README.md`](rust/README.md)'s `smart-hedge-portfolio` crate entry
+for why the aggregates are dollar-denominated rather than raw share
+counts.
+
 ## Direct C++ use
 
 ```bash

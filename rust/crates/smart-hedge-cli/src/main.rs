@@ -19,6 +19,7 @@ fn run(raw_args: &[String]) -> Result<i32, CliError> {
         Command::GuardDemo { symbol, overrides, intelligence_binary, guard_binary } => {
             commands::cmd_guard_demo(parsed.config, &symbol, overrides, intelligence_binary, guard_binary)
         }
+        Command::Portfolio { symbols } => commands::cmd_portfolio(parsed.config, symbols),
     }
 }
 

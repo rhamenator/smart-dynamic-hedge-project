@@ -85,15 +85,24 @@ processes talking only over stdio. See `rust/README.md` "Connecting the
 three repositories" for the full flow and exactly what is and isn't
 proven.
 
-Not yet done, and explicitly out of scope for this pass: international
+**Portfolio-level Greeks — done (2026-07-20).** New `smart-hedge-portfolio`
+crate and `portfolio` CLI subcommand: calls the unchanged C++ core once
+per configured position and aggregates into dollar-denominated portfolio
+Greeks (dollar delta, dollar gamma P&L, dollar vega/theta/rho, stock/
+option notional) — additive across different underlyings, unlike raw
+per-underlying share counts. Verified against a real two-position
+(SPY put + QQQ call) config, two real C++ core invocations aggregated
+correctly. See `rust/README.md`'s crate table.
+
+Still not done, and explicitly out of scope so far: international
 instrument/venue schemas, the `MODEL_URI` router (this repository still
 selects its model adviser via `SMART_HEDGE_MODEL_KIND`/`SMART_HEDGE_PROVIDER`,
 not a routed multi-model registry), whale/corporate/political/price/
 options/FX/crypto signal integration beyond the one demo fixture,
-evidence-graph/source-use UI, C++ portfolio-level pricing/Greeks
-expansion, a point-in-time backtester, and a paper-autonomous state
-machine (`guard-demo` is a one-shot manual command, not an autonomous
-loop). Each remains a distinct, later milestone.
+evidence-graph/source-use UI, a point-in-time backtester, and a
+paper-autonomous state machine (`guard-demo` is a one-shot manual
+command, not an autonomous loop). Each remains a distinct, later
+milestone, being worked through in sequence.
 
 ## Language and dependency policy (decided 2026-07-19)
 
