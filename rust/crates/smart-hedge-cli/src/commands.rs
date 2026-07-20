@@ -43,6 +43,22 @@ fn to_engine_overrides(o: ContractOverrideArgs) -> ContractOverrides {
     }
 }
 
+/// Builds a `SmartHedgeEngine`, optionally routing to a named model from
+/// `config.model.models` (the `MODEL_URI` router) instead of the legacy
+/// `model.kind`/`model.name` single adviser `SmartHedgeEngine::new` uses
+/// by default. `model_name: None` is the exact previous behavior — this
+/// function is a strict superset, not a replacement.
+fn build_engine(loaded: LoadedConfig, root: PathBuf, cpp_source: PathBuf, model_name: Option<&str>) -> Result<SmartHedgeEngine, CliError> {
+    match model_name {
+        None => Ok(SmartHedgeEngine::new(loaded, root, cpp_source)?),
+        Some(name) => {
+            let provider = smart_hedge_engine::build_provider(&loaded)?;
+            let advisor = smart_hedge_engine::build_advisor_by_name(&loaded, name)?;
+            Ok(SmartHedgeEngine::with_components(loaded, root, cpp_source, provider, advisor)?)
+        }
+    }
+}
+
 pub fn cmd_build_core(config_path: Option<PathBuf>) -> Result<i32, CliError> {
     let root = project_root()?;
     let loaded = load_config(resolve_config_path(config_path), &root)?;
@@ -52,11 +68,11 @@ pub fn cmd_build_core(config_path: Option<PathBuf>) -> Result<i32, CliError> {
     Ok(0)
 }
 
-pub fn cmd_once(config_path: Option<PathBuf>, symbol: &str, overrides: ContractOverrideArgs) -> Result<i32, CliError> {
+pub fn cmd_once(config_path: Option<PathBuf>, symbol: &str, overrides: ContractOverrideArgs, model: Option<String>) -> Result<i32, CliError> {
     let root = project_root()?;
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
-    let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
+    let engine = build_engine(loaded, root, cpp_source, model.as_deref())?;
     let decision = engine.recommendation(symbol, &to_engine_overrides(overrides))?;
     println!("{}", serde_json::to_string_pretty(&decision).expect("decision is always serializable"));
     Ok(0)
@@ -67,11 +83,12 @@ pub fn cmd_loop(
     symbol: &str,
     overrides: ContractOverrideArgs,
     interval: f64,
+    model: Option<String>,
 ) -> Result<i32, CliError> {
     let root = project_root()?;
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
-    let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
+    let engine = build_engine(loaded, root, cpp_source, model.as_deref())?;
     let engine_overrides = to_engine_overrides(overrides);
     let sleep_for = Duration::from_secs_f64(interval.max(1.0));
 

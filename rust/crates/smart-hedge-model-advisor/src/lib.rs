@@ -9,11 +9,15 @@ pub mod heuristic;
 mod http_util;
 #[cfg(test)]
 mod mock_http_test_support;
+pub mod model_uri;
 pub mod openai;
+pub mod router;
 pub mod schema;
 
 pub use advisor::Advisor;
 pub use error::{AdvisorError, SchemaError};
 pub use heuristic::HeuristicAdvisor;
+pub use model_uri::{ModelUri, ModelUriError};
 pub use openai::OpenAIAdvisor;
+pub use router::build_advisor_from_uri;
 pub use schema::{assessment_json_schema, validate_assessment_payload, ALLOWED_REGIMES};

@@ -9,8 +9,8 @@ fn run(raw_args: &[String]) -> Result<i32, CliError> {
     let parsed = parse_args(raw_args)?;
     match parsed.command {
         Command::BuildCore => commands::cmd_build_core(parsed.config),
-        Command::Once { symbol, overrides } => commands::cmd_once(parsed.config, &symbol, overrides),
-        Command::Loop { symbol, overrides, interval } => commands::cmd_loop(parsed.config, &symbol, overrides, interval),
+        Command::Once { symbol, overrides, model } => commands::cmd_once(parsed.config, &symbol, overrides, model),
+        Command::Loop { symbol, overrides, interval, model } => commands::cmd_loop(parsed.config, &symbol, overrides, interval, model),
         Command::Replay { decision_id } => commands::cmd_replay(parsed.config, &decision_id),
         Command::Recent { limit, symbol } => commands::cmd_recent(parsed.config, limit, symbol.as_deref()),
         Command::SelfTest { symbol } => commands::cmd_self_test(parsed.config, &symbol),

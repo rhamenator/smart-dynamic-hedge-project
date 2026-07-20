@@ -61,6 +61,15 @@ pub struct ModelConfig {
     pub max_evidence_items: i64,
     pub max_evidence_chars: i64,
     pub fallback_to_heuristic: bool,
+    /// The `MODEL_URI` router's registry: named model URIs
+    /// (`{"default": "heuristic://default", "aggressive": "openai://gpt-4.1"}`)
+    /// — see `smart_hedge_model_advisor::model_uri`. Empty by default,
+    /// which preserves the legacy behavior exactly: `kind`/`name` alone
+    /// select the single adviser, the same as before this field existed.
+    /// A non-empty `models` entry for a given name takes priority over
+    /// `kind`/`name` for that name.
+    #[serde(default)]
+    pub models: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

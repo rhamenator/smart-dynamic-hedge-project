@@ -76,6 +76,31 @@ impl OpenAIAdvisor {
         Self::new(loaded, api_key, openai_model.as_deref())
     }
 
+    /// For the `MODEL_URI` router (`crate::router`): `model` is an
+    /// `openai://<model>` URI's identifier, taken as-is rather than
+    /// resolved through `config.model.name`/`OPENAI_MODEL` — the router's
+    /// whole point is that the URI itself names the model, not a side
+    /// channel. `OPENAI_API_KEY` is still the only credential source;
+    /// this router never adds a second way to supply a secret.
+    pub fn with_explicit_model(loaded: &LoadedConfig, api_key: String, model: String) -> Result<Self, AdvisorError> {
+        let model = model.trim().to_string();
+        if model.is_empty() {
+            return Err(AdvisorError("model URI openai:// needs a non-empty identifier, e.g. openai://gpt-4.1".to_string()));
+        }
+        if api_key.is_empty() {
+            return Err(AdvisorError("OPENAI_API_KEY is not set".to_string()));
+        }
+        let model_cfg = &loaded.config.model;
+        Ok(OpenAIAdvisor {
+            model,
+            api_key,
+            timeout: Duration::from_secs_f64(model_cfg.timeout_seconds.max(0.0)),
+            max_evidence_items: model_cfg.max_evidence_items.max(0) as usize,
+            max_evidence_chars: model_cfg.max_evidence_chars.max(0) as usize,
+            responses_url: RESPONSES_URL.to_string(),
+        })
+    }
+
     /// Test-only: redirects the Responses API call to a local mock server
     /// so `assess` can be exercised as a real end-to-end HTTP round trip.
     #[cfg(test)]
@@ -250,6 +275,30 @@ mod tests {
     fn the_packaged_default_model_name_placeholder_is_rejected() {
         let loaded = loaded_config_with_model(r#"{"name": "configure-with-OPENAI_MODEL"}"#);
         let result = OpenAIAdvisor::new(&loaded, "sk-test".to_string(), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn with_explicit_model_ignores_configured_name_entirely() {
+        // Even though config.model.name is the rejected placeholder, the
+        // router's explicit model identifier still wins -- this
+        // constructor never consults config.model.name at all.
+        let loaded = loaded_config_with_model(r#"{"name": "configure-with-OPENAI_MODEL"}"#);
+        let result = OpenAIAdvisor::with_explicit_model(&loaded, "sk-test".to_string(), "gpt-4.1".to_string());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn with_explicit_model_rejects_an_empty_model() {
+        let loaded = loaded_config_with_model(r#"{}"#);
+        let result = OpenAIAdvisor::with_explicit_model(&loaded, "sk-test".to_string(), "  ".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn with_explicit_model_rejects_a_missing_api_key() {
+        let loaded = loaded_config_with_model(r#"{}"#);
+        let result = OpenAIAdvisor::with_explicit_model(&loaded, String::new(), "gpt-4.1".to_string());
         assert!(result.is_err());
     }
 

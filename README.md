@@ -342,6 +342,20 @@ Omitting symbols uses every configured contract. See
 for why the aggregates are dollar-denominated rather than raw share
 counts.
 
+## The `MODEL_URI` router
+
+```bash
+./rust/target/release/smart-hedge --config config.example.json once --model aggressive
+```
+
+`config.model.models` is an optional named registry mapping a name to a
+`scheme://identifier` model URI (`heuristic://default`,
+`openai://gpt-4.1`). `--model <name>` on `once`/`loop` routes through it;
+omitting the flag is the exact previous `model.kind`/`model.name`
+behavior — see [`rust/README.md`](rust/README.md) "The `MODEL_URI`
+router" for the full explanation, including why this is explicit,
+human-driven routing rather than autonomous model selection.
+
 ## Direct C++ use
 
 ```bash

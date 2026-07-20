@@ -16,7 +16,8 @@
   "model": {
     "kind": "heuristic",
     "name": "configure-with-OPENAI_MODEL",
-    "fallback_to_heuristic": true
+    "fallback_to_heuristic": true,
+    "models": {}
   },
   "policy": {
     "paper_only": true,

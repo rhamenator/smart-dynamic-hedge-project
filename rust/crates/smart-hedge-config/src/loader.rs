@@ -135,6 +135,29 @@ mod tests {
     }
 
     #[test]
+    fn model_registry_defaults_to_empty_preserving_legacy_kind_name_selection() {
+        let loaded = load_config(None, &EnvOverrides::default(), Path::new("/root")).unwrap();
+        assert!(loaded.config.model.models.is_empty());
+    }
+
+    #[test]
+    fn model_registry_can_be_configured_with_named_uris() {
+        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-models-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        std::fs::write(
+            &config_path,
+            r#"{"model": {"models": {"default": "heuristic://default", "aggressive": "openai://gpt-4.1"}}}"#,
+        )
+        .unwrap();
+
+        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
+        assert_eq!(loaded.config.model.models.get("default"), Some(&"heuristic://default".to_string()));
+        assert_eq!(loaded.config.model.models.get("aggressive"), Some(&"openai://gpt-4.1".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn a_brand_new_contract_symbol_gets_only_the_fields_it_specifies_plus_defaults() {
         let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-newcontract-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

@@ -20,17 +20,17 @@ working tree.
 | Crate | Ports | Status |
 |---|---|---|
 | `smart-hedge-models` | `python/smart_hedge/models.py` | fixture-tested — 30 tests, including a hand-rolled `UtcTimestamp`/`TimestampUtc`-style parser, the `CoreResponse` type matching the C++ core's exact JSON output, SHA-256 (verified against NIST vectors), and a UUID-v4-shaped unique-ID generator |
-| `smart-hedge-config` | `python/smart_hedge/config.py` | fixture-tested — 29 tests; JSON-tree deep-merge (parity with Python's dict merge) feeding a statically-typed `Config`, not an untyped dict; `StrikeSpec` handles the `"ATM"`-or-number contract strike field |
+| `smart-hedge-config` | `python/smart_hedge/config.py` | fixture-tested — 31 tests; JSON-tree deep-merge (parity with Python's dict merge) feeding a statically-typed `Config`, not an untyped dict; `StrikeSpec` handles the `"ATM"`-or-number contract strike field. `model.models` is the `MODEL_URI` router's named registry (`#[serde(default)]` empty — zero behavior change for any config file that doesn't set it). |
 | `smart-hedge-policy` | `python/smart_hedge/policy.py` | fixture-tested — 18 tests, including exact transcriptions of all four cases in `tests/test_policy.py` plus additional boundary coverage (`TRADE_SHARE_LIMIT`, `PREVIEW_NOTIONAL_LIMIT`, `NONFINITE_CORE_VALUE`, round-half-to-even) the Python suite doesn't currently exercise |
 | `smart-hedge-core-bridge` | `python/smart_hedge/core_bridge.py` | fixture-tested + real integration tests — 13 tests, including one that actually builds and runs the real `cpp/smart_dynamic_hedge.cpp` binary end to end when a toolchain is available (skips gracefully otherwise), plus direct coverage of the explicit-binary-override and `auto_build: false` gating paths |
 | `smart-hedge-features` | `python/smart_hedge/features.py` | fixture-tested — 33 tests covering data-quality composition, missing-feature marking, the volume-z-score/trend-score history-and-floor guards |
 | `smart-hedge-store` | `python/smart_hedge/store.py` | fixture-tested — 20 tests, including one that directly corrupts a stored row via raw SQL and confirms replay detects the tamper |
-| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema, `HeuristicAdvisor`, `OpenAIAdvisor`) | fixture-tested + real end-to-end + adversarial tests — 46 tests, including exact transcriptions of `tests/test_model_schema.py`'s cases, real HTTP round trips against a local mock OpenAI server, and a battery of a dozen deliberately hostile fake model outputs (the live `api.openai.com` endpoint itself still isn't exercised — see `SDH-LLR-056`) |
+| `smart-hedge-model-advisor` | `python/smart_hedge/model_advisor.py` (schema, `HeuristicAdvisor`, `OpenAIAdvisor`) | fixture-tested + real end-to-end + adversarial tests — 62 tests (was 46), including exact transcriptions of `tests/test_model_schema.py`'s cases, real HTTP round trips against a local mock OpenAI server, a battery of a dozen deliberately hostile fake model outputs (the live `api.openai.com` endpoint itself still isn't exercised — see `SDH-LLR-056`), and the new `model_uri`/`router` modules (13 tests) implementing the `MODEL_URI` router's addressing/construction: `heuristic://`/`openai://<model>` URI parsing plus building the matching `Advisor` |
 | `smart-hedge-data` | `python/smart_hedge/data.py` (`SyntheticProvider`, `AlpacaReadOnlyProvider`, evidence-file/FRED/RSS loading) | fixture-tested + real end-to-end + adversarial tests — 99 tests, including a hand-rolled, DTD/entity-free RSS/Atom XML extractor tested against CDATA, XML entities, and a deliberate XXE-attempt fixture that proves the entity is never expanded, real HTTP round trips against local mock Alpaca/FRED/RSS servers, adversarial-response batteries per provider, and a real XXE-driven-SSRF proof using an independent "canary" server that must never be contacted |
-| `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end + randomized workout tests — 26 tests, including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, both branches of the adviser-failure/fallback path, and a 25-iteration randomized "chaos" run (random symbols including unconfigured ones, boundary/out-of-range contract overrides, an unpredictably-failing adviser) asserting no panic and paper-only invariants hold throughout |
+| `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end + randomized workout tests — 31 tests (was 26), including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, both branches of the adviser-failure/fallback path, a 25-iteration randomized "chaos" run (random symbols including unconfigured ones, boundary/out-of-range contract overrides, an unpredictably-failing adviser) asserting no panic and paper-only invariants hold throughout, and `build_advisor_by_name` (the `MODEL_URI` router's registry lookup — an unconfigured non-`"default"` name is a distinct error, never a silent fallback) |
 | `smart-hedge-dashboard` | `python/smart_hedge/dashboard.py` | fixture-tested + real end-to-end integration tests — 32 tests, including 8 that bind a real ephemeral TCP port, run the real accept loop, and make real HTTP requests against it |
 | `smart-hedge-mcp` | `python/smart_hedge/mcp_server.py` | fixture-tested — 19 tests covering the JSON-RPC 2.0 envelope, all six tools, and the MCP-specific "tool failure is an `isError` result, not a protocol error" distinction |
-| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand) | fixture-tested + real subprocess integration tests — 35 tests (26 unit + 9 integration), including spawning the real binary as `serve` and making a real HTTP request against it, and spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio |
+| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand, plus new `guard-demo`/`portfolio` subcommands with no Python equivalent) | fixture-tested + real subprocess integration tests — 41 tests (32 unit + 9 integration), including spawning the real binary as `serve` and making a real HTTP request against it, spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio, and `once`/`loop`'s new `--model <name>` flag (the `MODEL_URI` router, routing through `config.model.models` instead of the legacy single adviser) |
 | `smart-hedge-audit` | (no Python equivalent — a new, repo-wide structural check) | 5 tests: a real scan of every `.rs` file in this workspace asserting none names or constructs an order-placement request, plus four self-tests proving the checker actually detects a planted violation rather than being vacuously true |
 | `smart-hedge-mcp-client` | (no Python equivalent — new, for the V2 multi-repository integration) | fixture-tested + real end-to-end — 7 tests. A generic, dependency-free MCP stdio JSON-RPC client (spawn a server binary, one request per line, read one response line), the client-side counterpart to this workspace's own `smart-hedge-mcp` server. Tests spawn this repository's own `smart-hedge` binary as the server under test, so this crate's suite needs no sibling repository built. |
 | `smart-hedge-intelligence-client` | (no Python equivalent) | 1 test — a thin typed wrapper over `smart-hedge-mcp-client` for `market-intelligence-mcp`'s 11 read-only tools (`health`, `list-configured-sources`, `build-evidence-bundle`, etc.). |
@@ -53,8 +53,41 @@ simulator — three independently-built binaries from three separate
 repositories, talking over real subprocess/stdio boundaries, not fixtures.
 See "Connecting the three repositories" below.
 
-**Total: 425 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 452 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
+
+## The `MODEL_URI` router
+
+`docs/ROADMAP.md` Phase 4 named this as an open gap: this repository
+selected its model adviser via a single `model.kind`/`model.name` pair,
+not a routed multi-model registry. `config.model.models` is now an
+optional named registry (`{"default": "heuristic://default", "aggressive":
+"openai://gpt-4.1"}`); `smart_hedge_model_advisor::ModelUri` parses each
+value (`scheme://identifier`, the same convention
+`03-create-trade-guard-mcp.md` uses for broker/venue selection), and
+`smart_hedge_engine::build_advisor_by_name` resolves a name against that
+registry, falling back to the legacy `kind`/`name` selection *only* for
+the name `"default"` when no registry is configured at all — every other
+config file keeps working with zero behavior change.
+
+```bash
+./target/release/smart-hedge --config config.example.json once --model aggressive
+```
+
+`--model` is new on `once`/`loop`; omitting it is the exact previous
+behavior. This is a real router in the sense Phase 4 asks for (addressing
+and constructing more than one configured model), not an autonomous
+one — nothing in this system yet has a signal that would make "pick model
+A vs. B automatically" anything but speculative, so that remains explicit,
+human-driven routing for now, the same way `guard-demo` is explicit,
+human-driven cross-repo integration rather than an autonomous loop.
+
+Verified against a real two-entry registry: `--model default` (routed to
+`heuristic://default`) and `--model aggressive` (routed to
+`openai://gpt-4.1`, failing fast and cleanly with `OPENAI_API_KEY is not
+set` when no credential is configured — not a panic, not a silent
+fallback), plus confirming the no-`--model` path is byte-for-byte the
+same as before this router existed.
 
 ### Testing the network providers without live credentials
 

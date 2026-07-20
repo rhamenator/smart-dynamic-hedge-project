@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased (MODEL_URI router)
+
+Closes another of the five gaps `docs/ROADMAP.md` Phase 4 named as still
+open: this repository selected its model adviser via a single
+`model.kind`/`model.name` pair, not a routed multi-model registry.
+
+- **`config.model.models`**: an optional named registry
+  (`{"default": "heuristic://default", "aggressive": "openai://gpt-4.1"}`),
+  `#[serde(default)]` empty — zero behavior change for any config file
+  that doesn't set it.
+- **New `smart_hedge_model_advisor::model_uri`**: `ModelUri::parse`
+  (`scheme://identifier`, the same convention
+  `03-create-trade-guard-mcp.md` uses for broker/venue selection).
+- **New `smart_hedge_model_advisor::router::build_advisor_from_uri`**:
+  constructs the `Advisor` a URI names (`heuristic://` always succeeds;
+  `openai://<model>` needs a non-empty identifier and `OPENAI_API_KEY`).
+  `OpenAIAdvisor::with_explicit_model` is the new constructor this uses —
+  takes the URI's identifier directly rather than resolving through
+  `config.model.name`/`OPENAI_MODEL`.
+- **New `smart_hedge_engine::build_advisor_by_name`**: resolves a name
+  against `config.model.models`, falling back to the legacy `kind`/`name`
+  selection only for the name `"default"` with no registry entry — any
+  other unconfigured name is a distinct error, never a silent fallback to
+  whatever the legacy adviser happens to be.
+- **New `once`/`loop --model <name>` CLI flag.** Omitting it is the exact
+  previous behavior (`SmartHedgeEngine::new`, unchanged).
+- **Explicit, human-driven routing, not autonomous model selection** —
+  see `rust/README.md` "The `MODEL_URI` router" for why: nothing in this
+  system yet has a signal that would make automatic model selection
+  anything but speculative.
+- Verified against a real two-entry registry: `--model default` routed
+  to `heuristic://default`, `--model aggressive` routed to
+  `openai://gpt-4.1` and failed fast and cleanly
+  (`OPENAI_API_KEY is not set`, not a panic) without a credential
+  configured, and the no-`--model` path confirmed unchanged.
+- **27 new tests, 452 total** (was 425), `cargo clippy --workspace
+  --all-targets` clean. Also fixed a real, pre-existing test-isolation
+  bug this pass's own new test surfaced: `smart-hedge-engine`'s
+  `config_with_model_kind` test helper built its scratch directory path
+  from only `kind`+PID, so two tests calling it with the same `kind`
+  string (now happening for the first time) raced on
+  `remove_dir_all` when run in parallel — fixed with a counter suffix,
+  the same pattern every other scratch-directory helper in this codebase
+  already uses.
+
 ## Unreleased (portfolio-level Greeks)
 
 Closes one of the five gaps `docs/ROADMAP.md` Phase 4 named as still open.

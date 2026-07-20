@@ -94,15 +94,26 @@ per-underlying share counts. Verified against a real two-position
 (SPY put + QQQ call) config, two real C++ core invocations aggregated
 correctly. See `rust/README.md`'s crate table.
 
+**`MODEL_URI` router — done (2026-07-20).** `config.model.models` is now
+an optional named registry (`{"default": "heuristic://default",
+"aggressive": "openai://gpt-4.1"}`); `smart_hedge_model_advisor::ModelUri`
+parses `scheme://identifier`, and `smart_hedge_engine::build_advisor_by_name`
+resolves a name against the registry, falling back to the legacy
+`kind`/`name` selection only for `"default"` with no registry configured
+— zero behavior change for any existing config. New `once`/`loop --model
+<name>` CLI flag. Explicit, human-driven routing, not autonomous model
+selection — see `rust/README.md` "The `MODEL_URI` router" for why that
+distinction is deliberate. Verified against a real two-entry registry
+(heuristic + openai, the latter failing fast and cleanly without
+credentials) plus confirming the no-flag path is unchanged.
+
 Still not done, and explicitly out of scope so far: international
-instrument/venue schemas, the `MODEL_URI` router (this repository still
-selects its model adviser via `SMART_HEDGE_MODEL_KIND`/`SMART_HEDGE_PROVIDER`,
-not a routed multi-model registry), whale/corporate/political/price/
-options/FX/crypto signal integration beyond the one demo fixture,
-evidence-graph/source-use UI, a point-in-time backtester, and a
-paper-autonomous state machine (`guard-demo` is a one-shot manual
-command, not an autonomous loop). Each remains a distinct, later
-milestone, being worked through in sequence.
+instrument/venue schemas, whale/corporate/political/price/options/FX/
+crypto signal integration beyond the one demo fixture, evidence-graph/
+source-use UI, a point-in-time backtester, and a paper-autonomous state
+machine (`guard-demo` is a one-shot manual command, not an autonomous
+loop). Each remains a distinct, later milestone, being worked through in
+sequence.
 
 ## Language and dependency policy (decided 2026-07-19)
 

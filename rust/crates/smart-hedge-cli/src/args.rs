@@ -6,8 +6,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     BuildCore,
-    Once { symbol: String, overrides: ContractOverrideArgs },
-    Loop { symbol: String, overrides: ContractOverrideArgs, interval: f64 },
+    Once { symbol: String, overrides: ContractOverrideArgs, model: Option<String> },
+    Loop { symbol: String, overrides: ContractOverrideArgs, interval: f64, model: Option<String> },
     Replay { decision_id: String },
     Recent { limit: i64, symbol: Option<String> },
     SelfTest { symbol: String },
@@ -113,9 +113,10 @@ impl<'a> FlagCursor<'a> {
     }
 }
 
-fn parse_contract_overrides(tail: &[String], command: &str) -> Result<(String, ContractOverrideArgs), ArgsError> {
+fn parse_contract_overrides(tail: &[String], command: &str) -> Result<(String, ContractOverrideArgs, Option<String>), ArgsError> {
     let mut symbol = "SPY".to_string();
     let mut overrides = ContractOverrideArgs::default();
+    let mut model: Option<String> = None;
     FlagCursor::new(tail).run(command, |name, value| {
         match name {
             "symbol" => symbol = value.to_string(),
@@ -124,11 +125,12 @@ fn parse_contract_overrides(tail: &[String], command: &str) -> Result<(String, C
             "days" => overrides.days = Some(parse_f64("--days", value)?),
             "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
             "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
+            "model" => model = Some(value.to_string()),
             _ => return Ok(false),
         }
         Ok(true)
     })?;
-    Ok((symbol.to_uppercase(), overrides))
+    Ok((symbol.to_uppercase(), overrides, model))
 }
 
 pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
@@ -157,13 +159,14 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
     let command = match command_name.as_str() {
         "build-core" => Command::BuildCore,
         "once" => {
-            let (symbol, overrides) = parse_contract_overrides(tail, "once")?;
-            Command::Once { symbol, overrides }
+            let (symbol, overrides, model) = parse_contract_overrides(tail, "once")?;
+            Command::Once { symbol, overrides, model }
         }
         "loop" => {
             let mut interval = 15.0;
             let mut symbol = "SPY".to_string();
             let mut overrides = ContractOverrideArgs::default();
+            let mut model: Option<String> = None;
             FlagCursor::new(tail).run("loop", |name, value| {
                 match name {
                     "symbol" => symbol = value.to_string(),
@@ -173,11 +176,12 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                     "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
                     "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
                     "interval" => interval = parse_f64("--interval", value)?,
+                    "model" => model = Some(value.to_string()),
                     _ => return Ok(false),
                 }
                 Ok(true)
             })?;
-            Command::Loop { symbol: symbol.to_uppercase(), overrides, interval }
+            Command::Loop { symbol: symbol.to_uppercase(), overrides, interval, model }
         }
         "replay" => {
             let positionals = FlagCursor::new(tail).run("replay", |_, _| Ok(false))?;
@@ -301,13 +305,19 @@ mod tests {
     #[test]
     fn once_defaults_to_spy_with_no_overrides() {
         let parsed = parse_args(&args(&["once"])).unwrap();
-        assert_eq!(parsed.command, Command::Once { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default() });
+        assert_eq!(
+            parsed.command,
+            Command::Once { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), model: None }
+        );
     }
 
     #[test]
     fn once_symbol_is_uppercased() {
         let parsed = parse_args(&args(&["once", "--symbol", "qqq"])).unwrap();
-        assert_eq!(parsed.command, Command::Once { symbol: "QQQ".to_string(), overrides: ContractOverrideArgs::default() });
+        assert_eq!(
+            parsed.command,
+            Command::Once { symbol: "QQQ".to_string(), overrides: ContractOverrideArgs::default(), model: None }
+        );
     }
 
     #[test]
@@ -323,7 +333,7 @@ mod tests {
             current_shares: Some(-5.0),
             contracts: Some(2),
         };
-        assert_eq!(parsed.command, Command::Once { symbol: "SPY".to_string(), overrides: expected });
+        assert_eq!(parsed.command, Command::Once { symbol: "SPY".to_string(), overrides: expected, model: None });
     }
 
     #[test]
@@ -339,11 +349,20 @@ mod tests {
     }
 
     #[test]
+    fn once_accepts_a_model_flag() {
+        let parsed = parse_args(&args(&["once", "--model", "aggressive"])).unwrap();
+        assert_eq!(
+            parsed.command,
+            Command::Once { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), model: Some("aggressive".to_string()) }
+        );
+    }
+
+    #[test]
     fn loop_defaults_interval_to_fifteen_seconds() {
         let parsed = parse_args(&args(&["loop"])).unwrap();
         assert_eq!(
             parsed.command,
-            Command::Loop { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), interval: 15.0 }
+            Command::Loop { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), interval: 15.0, model: None }
         );
     }
 
@@ -352,7 +371,21 @@ mod tests {
         let parsed = parse_args(&args(&["loop", "--interval", "5"])).unwrap();
         assert_eq!(
             parsed.command,
-            Command::Loop { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), interval: 5.0 }
+            Command::Loop { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), interval: 5.0, model: None }
+        );
+    }
+
+    #[test]
+    fn loop_accepts_a_model_flag() {
+        let parsed = parse_args(&args(&["loop", "--model", "aggressive"])).unwrap();
+        assert_eq!(
+            parsed.command,
+            Command::Loop {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                interval: 15.0,
+                model: Some("aggressive".to_string()),
+            }
         );
     }
 
