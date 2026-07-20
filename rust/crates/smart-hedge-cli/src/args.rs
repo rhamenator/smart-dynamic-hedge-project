@@ -16,6 +16,17 @@ pub enum Command {
     GuardDemo { symbol: String, overrides: ContractOverrideArgs, intelligence_binary: Option<PathBuf>, guard_binary: Option<PathBuf> },
     Portfolio { symbols: Vec<String> },
     Backtest { symbol: String, days: u32, start: Option<String> },
+    Autonomous {
+        symbol: String,
+        overrides: ContractOverrideArgs,
+        interval: f64,
+        model: Option<String>,
+        intelligence_binary: Option<PathBuf>,
+        guard_binary: Option<PathBuf>,
+        max_iterations: Option<u32>,
+        max_consecutive_errors: u32,
+        stop_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -46,7 +57,7 @@ pub enum ArgsError {
 impl fmt::Display for ArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo, portfolio, backtest)"),
+            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo, portfolio, backtest, autonomous)"),
             Self::UnknownCommand(c) => write!(f, "unknown command: {c}"),
             Self::UnknownFlag { command, flag } => write!(f, "unknown flag {flag} for command {command}"),
             Self::MissingValueFor(flag) => write!(f, "{flag} requires a value"),
@@ -274,6 +285,49 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                 Ok(true)
             })?;
             Command::Backtest { symbol: symbol.to_uppercase(), days, start }
+        }
+        "autonomous" => {
+            let mut symbol = "SPY".to_string();
+            let mut overrides = ContractOverrideArgs::default();
+            let mut interval = 15.0;
+            let mut model: Option<String> = None;
+            let mut intelligence_binary: Option<PathBuf> = None;
+            let mut guard_binary: Option<PathBuf> = None;
+            let mut max_iterations: Option<u32> = None;
+            let mut max_consecutive_errors: u32 = 3;
+            let mut stop_file: Option<PathBuf> = None;
+            FlagCursor::new(tail).run("autonomous", |name, value| {
+                match name {
+                    "symbol" => symbol = value.to_string(),
+                    "strike" => overrides.strike = Some(parse_f64("--strike", value)?),
+                    "vol" => overrides.vol = Some(parse_f64("--vol", value)?),
+                    "days" => overrides.days = Some(parse_f64("--days", value)?),
+                    "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
+                    "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
+                    "interval" => interval = parse_f64("--interval", value)?,
+                    "model" => model = Some(value.to_string()),
+                    "intelligence-binary" => intelligence_binary = Some(PathBuf::from(value)),
+                    "guard-binary" => guard_binary = Some(PathBuf::from(value)),
+                    "max-iterations" => max_iterations = Some(parse_i64("--max-iterations", value)?.clamp(0, i64::from(u32::MAX)) as u32),
+                    "max-consecutive-errors" => {
+                        max_consecutive_errors = parse_i64("--max-consecutive-errors", value)?.clamp(1, i64::from(u32::MAX)) as u32
+                    }
+                    "stop-file" => stop_file = Some(PathBuf::from(value)),
+                    _ => return Ok(false),
+                }
+                Ok(true)
+            })?;
+            Command::Autonomous {
+                symbol: symbol.to_uppercase(),
+                overrides,
+                interval,
+                model,
+                intelligence_binary,
+                guard_binary,
+                max_iterations,
+                max_consecutive_errors,
+                stop_file,
+            }
         }
         other => return Err(ArgsError::UnknownCommand(other.to_string())),
     };
@@ -536,5 +590,75 @@ mod tests {
     fn backtest_rejects_a_non_numeric_days() {
         let result = parse_args(&args(&["backtest", "--days", "abc"]));
         assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--days".to_string(), value: "abc".to_string() }));
+    }
+
+    #[test]
+    fn autonomous_defaults_to_spy_fifteen_second_interval_and_three_consecutive_errors() {
+        let parsed = parse_args(&args(&["autonomous"])).unwrap();
+        assert_eq!(
+            parsed.command,
+            Command::Autonomous {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                interval: 15.0,
+                model: None,
+                intelligence_binary: None,
+                guard_binary: None,
+                max_iterations: None,
+                max_consecutive_errors: 3,
+                stop_file: None,
+            }
+        );
+    }
+
+    #[test]
+    fn autonomous_accepts_all_safety_gate_flags() {
+        let parsed = parse_args(&args(&[
+            "autonomous",
+            "--symbol",
+            "qqq",
+            "--interval",
+            "5",
+            "--model",
+            "aggressive",
+            "--intelligence-binary",
+            "market_intelligence_server",
+            "--guard-binary",
+            "trade_guard_server",
+            "--max-iterations",
+            "10",
+            "--max-consecutive-errors",
+            "5",
+            "--stop-file",
+            "stop.txt",
+        ]))
+        .unwrap();
+        assert_eq!(
+            parsed.command,
+            Command::Autonomous {
+                symbol: "QQQ".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                interval: 5.0,
+                model: Some("aggressive".to_string()),
+                intelligence_binary: Some(PathBuf::from("market_intelligence_server")),
+                guard_binary: Some(PathBuf::from("trade_guard_server")),
+                max_iterations: Some(10),
+                max_consecutive_errors: 5,
+                stop_file: Some(PathBuf::from("stop.txt")),
+            }
+        );
+    }
+
+    #[test]
+    fn autonomous_max_consecutive_errors_cannot_be_parsed_below_one() {
+        let parsed = parse_args(&args(&["autonomous", "--max-consecutive-errors", "0"])).unwrap();
+        let Command::Autonomous { max_consecutive_errors, .. } = parsed.command else { panic!("expected Autonomous") };
+        assert_eq!(max_consecutive_errors, 1);
+    }
+
+    #[test]
+    fn autonomous_rejects_a_non_numeric_max_iterations() {
+        let result = parse_args(&args(&["autonomous", "--max-iterations", "abc"]));
+        assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--max-iterations".to_string(), value: "abc".to_string() }));
     }
 }

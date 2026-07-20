@@ -21,6 +21,28 @@ fn run(raw_args: &[String]) -> Result<i32, CliError> {
         }
         Command::Portfolio { symbols } => commands::cmd_portfolio(parsed.config, symbols),
         Command::Backtest { symbol, days, start } => commands::cmd_backtest(parsed.config, &symbol, days, start),
+        Command::Autonomous {
+            symbol,
+            overrides,
+            interval,
+            model,
+            intelligence_binary,
+            guard_binary,
+            max_iterations,
+            max_consecutive_errors,
+            stop_file,
+        } => commands::cmd_autonomous(
+            parsed.config,
+            &symbol,
+            overrides,
+            interval,
+            model,
+            intelligence_binary,
+            guard_binary,
+            max_iterations,
+            max_consecutive_errors,
+            stop_file,
+        ),
     }
 }
 

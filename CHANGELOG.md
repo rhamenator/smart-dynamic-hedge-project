@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased (autonomous non-manual paper operation)
+
+Closes the fifth and last of the five gaps `docs/ROADMAP.md` Phase 4
+named as still open: `guard-demo` proved the full recommendation →
+evidence → guard-authorization chain works, but only as a one-shot,
+human-re-invoked command.
+
+- **New `autonomous` CLI subcommand**: `smart-hedge autonomous --symbol
+  SPY --interval 15` runs the same chain `guard-demo` proves on a timer,
+  without a human re-invoking anything each cycle. Still paper-only
+  (nothing in this repository's dependency graph can place a live order),
+  still explicitly started by a human once, not scheduled or
+  self-initiating.
+- **Refactored `guard-demo`'s recommendation → evidence →
+  guard-authorization logic into a shared `run_guard_cycle` helper**
+  (`smart-hedge-cli::commands`), used by both the one-shot `guard-demo`
+  command and the new `autonomous` loop — no behavior change to
+  `guard-demo`'s own output.
+- **Three safety gates**, on top of everything `evaluate_policy` and
+  `trade-guard-mcp`'s own paper simulator already enforce:
+  - **stop file** (`--stop-file`, default
+    `<project_root>/.smart-hedge-stop`): checked at the top of every
+    iteration; if present, the loop halts cleanly. The kill switch.
+  - **`--max-iterations`**: an optional hard cap for bounded runs.
+  - **consecutive-error circuit breaker** (`--max-consecutive-errors`,
+    default 3): halts the loop with a nonzero exit after that many *hard*
+    errors (a sibling process failed to spawn, or spoke a broken
+    protocol) in a row. A policy rejection from `trade-guard-mcp`
+    (insufficient buying power, evidence ineligible) is not an error here
+    — it resets the counter, the same as a fill or a "no trade proposed"
+    cycle.
+- Verified against all three repositories' real release binaries: a
+  bounded `--max-iterations 3` run produced three real fills across three
+  real iterations; a pre-existing stop file halted the loop before any
+  iteration ran; pointing `--guard-binary` at a nonexistent path produced
+  two real spawn failures and then a nonzero exit with
+  `--max-consecutive-errors 2`.
+- **4 new tests, 462 total** (was 458: 4 new `smart-hedge-cli` argument-
+  parsing tests for `autonomous`'s flags), `cargo clippy --workspace
+  --all-targets` clean.
+
 ## Unreleased (point-in-time backtester, and a real evaluate_policy bug fix)
 
 Closes the last of the five gaps `docs/ROADMAP.md` Phase 4 named as still

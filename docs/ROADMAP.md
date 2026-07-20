@@ -148,12 +148,29 @@ through all 17 call sites in the workspace. Re-verified via the same
 scenario: a real 20-day SPY backtest now produces 13 trading days and
 nonzero turnover, zero `STALE_QUOTE` blocks.
 
+**Autonomous (non-manual) paper operation — done (2026-07-20).** New
+`autonomous` CLI subcommand: runs the same recommendation → evidence →
+guard-authorization chain `guard-demo` proves once, but on a timer,
+without a human re-invoking anything each cycle — still paper-only, still
+explicitly started by a human once, not scheduled or self-initiating.
+Three safety gates on top of everything `evaluate_policy` and
+`trade-guard-mcp`'s own paper simulator already enforce: a stop-file kill
+switch checked at the top of every iteration, an optional
+`--max-iterations` hard cap, and a consecutive-error circuit breaker
+(`--max-consecutive-errors`, default 3) that halts the loop with a nonzero
+exit after that many hard failures in a row — a policy rejection (not a
+hard error) resets the counter, same as a fill. Verified against all three
+repositories' real release binaries: a bounded 3-iteration run produced
+three real fills, a pre-existing stop file halted the loop before any
+iteration ran, and a broken guard-binary path produced two real spawn
+failures then a nonzero-exit halt with `--max-consecutive-errors 2`. See
+`rust/README.md` "Autonomous (non-manual) paper operation" for the full
+explanation.
+
 Still not done, and explicitly out of scope so far:
 whale/corporate/political/price/options/FX/crypto signal integration
-beyond the one demo fixture, evidence-graph/source-use UI, and a
-paper-autonomous state machine (`guard-demo` is a one-shot manual command,
-not an autonomous loop). Each remains a distinct, later milestone, being
-worked through in sequence.
+beyond the one demo fixture, and evidence-graph/source-use UI. Each
+remains a distinct, later milestone, being worked through in sequence.
 
 ## Language and dependency policy (decided 2026-07-19)
 

@@ -30,7 +30,7 @@ working tree.
 | `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end + randomized workout tests — 31 tests (was 26), including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, both branches of the adviser-failure/fallback path, a 25-iteration randomized "chaos" run (random symbols including unconfigured ones, boundary/out-of-range contract overrides, an unpredictably-failing adviser) asserting no panic and paper-only invariants hold throughout, and `build_advisor_by_name` (the `MODEL_URI` router's registry lookup — an unconfigured non-`"default"` name is a distinct error, never a silent fallback) |
 | `smart-hedge-dashboard` | `python/smart_hedge/dashboard.py` | fixture-tested + real end-to-end integration tests — 32 tests, including 8 that bind a real ephemeral TCP port, run the real accept loop, and make real HTTP requests against it |
 | `smart-hedge-mcp` | `python/smart_hedge/mcp_server.py` | fixture-tested — 19 tests covering the JSON-RPC 2.0 envelope, all six tools, and the MCP-specific "tool failure is an `isError` result, not a protocol error" distinction |
-| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand, plus new `guard-demo`/`portfolio`/`backtest` subcommands with no Python equivalent) | fixture-tested + real subprocess integration tests — 44 tests (35 unit + 9 integration, was 41), including spawning the real binary as `serve` and making a real HTTP request against it, spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio, `once`/`loop`'s `--model <name>` flag (the `MODEL_URI` router), and the new `backtest` subcommand's argument parsing (`--symbol`/`--days`/`--start`) |
+| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand, plus new `guard-demo`/`portfolio`/`backtest`/`autonomous` subcommands with no Python equivalent) | fixture-tested + real subprocess integration tests — 48 tests (39 unit + 9 integration, was 44), including spawning the real binary as `serve` and making a real HTTP request against it, spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio, `once`/`loop`'s `--model <name>` flag (the `MODEL_URI` router), the `backtest` subcommand's argument parsing, and the new `autonomous` subcommand's safety-gate flag parsing (`--max-iterations`/`--max-consecutive-errors`/`--stop-file`) |
 | `smart-hedge-audit` | (no Python equivalent — a new, repo-wide structural check) | 5 tests: a real scan of every `.rs` file in this workspace asserting none names or constructs an order-placement request, plus four self-tests proving the checker actually detects a planted violation rather than being vacuously true |
 | `smart-hedge-mcp-client` | (no Python equivalent — new, for the V2 multi-repository integration) | fixture-tested + real end-to-end — 7 tests. A generic, dependency-free MCP stdio JSON-RPC client (spawn a server binary, one request per line, read one response line), the client-side counterpart to this workspace's own `smart-hedge-mcp` server. Tests spawn this repository's own `smart-hedge` binary as the server under test, so this crate's suite needs no sibling repository built. |
 | `smart-hedge-intelligence-client` | (no Python equivalent) | 1 test — a thin typed wrapper over `smart-hedge-mcp-client` for `market-intelligence-mcp`'s 11 read-only tools (`health`, `list-configured-sources`, `build-evidence-bundle`, etc.). |
@@ -54,7 +54,7 @@ simulator — three independently-built binaries from three separate
 repositories, talking over real subprocess/stdio boundaries, not fixtures.
 See "Connecting the three repositories" below.
 
-**Total: 458 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 462 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
 
 ## The `MODEL_URI` router
@@ -444,6 +444,48 @@ threading it through all 17 call sites in the workspace
 `smart-hedge-policy::parity_tests.rs`). Re-verified against the same
 scenario after the fix: `total_turnover_shares: 96.48…, trading_days: 13,
 final_current_shares: 49.60…`, zero `STALE_QUOTE` occurrences.
+
+## Autonomous (non-manual) paper operation
+
+`docs/ROADMAP.md` Phase 4 named this as the last open gap: `guard-demo`
+proves the full recommendation → evidence → guard-authorization chain
+works end to end, but a human has to re-invoke it every cycle. `autonomous`
+runs that same chain on a timer without a human re-invoking anything each
+iteration — still paper-only (nothing in this repository's dependency
+graph can place a live order; see `smart-hedge-audit`), and still
+explicitly started by a human once, not scheduled or self-initiating.
+
+```bash
+export MARKET_INTELLIGENCE_MCP_BIN=/path/to/market-intelligence-mcp/target/release/market_intelligence_server
+export TRADE_GUARD_MCP_BIN=/path/to/trade-guard-mcp/target/release/trade_guard_server
+./target/release/smart-hedge --config ../config.example.json autonomous --symbol SPY --interval 15
+```
+
+Three safety gates sit on top of everything `evaluate_policy` and
+`trade-guard-mcp`'s own paper simulator already enforce (including the
+`STALE_QUOTE` check above, which already pauses trading on stale data):
+
+- **stop file** (`--stop-file`, default `<project_root>/.smart-hedge-stop`):
+  checked at the top of every iteration; if present, the loop halts
+  cleanly. The kill switch — an operator drops a file, the loop notices
+  within one interval, no signal handling needed.
+- **`--max-iterations`**: an optional hard cap, for bounded runs (testing,
+  a supervised session) instead of "forever" by default.
+- **consecutive-error circuit breaker** (`--max-consecutive-errors`,
+  default 3): a *hard* error — a sibling process failed to spawn, or spoke
+  a broken protocol — halts the loop (nonzero exit) after that many in a
+  row, instead of hammering a broken dependency forever. A policy
+  rejection from `trade-guard-mcp` (insufficient buying power, evidence
+  ineligible) is not an error here — it is the guard doing its job — and
+  resets the counter to zero, the same as a fill or a "no trade proposed"
+  cycle.
+
+Verified against all three repositories' real release binaries: a bounded
+`--max-iterations 3` run produced three real fills across three real
+iterations; a pre-existing stop file halted the loop before any iteration
+ran (`"halting after 0 iteration(s)"`); pointing `--guard-binary` at a
+nonexistent path produced two real spawn failures and then a nonzero exit
+(`"halting after 2 consecutive errors"`) with `--max-consecutive-errors 2`.
 
 ## Building and testing
 

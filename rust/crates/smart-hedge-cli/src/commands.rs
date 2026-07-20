@@ -230,6 +230,110 @@ fn demo_source_use_decision() -> serde_json::Value {
     })
 }
 
+/// Outcome of one `run_guard_cycle`, shared by the one-shot `guard-demo`
+/// command and the continuous `autonomous` loop below. A policy
+/// rejection from `trade-guard-mcp` (insufficient buying power, evidence
+/// ineligible) is `Rejected` — a legitimate, expected outcome, not a
+/// `CliError`. Only a hard failure (a sibling process failed to spawn or
+/// spoke a broken protocol) surfaces as `run_guard_cycle`'s `Err`.
+enum GuardCycleOutcome {
+    NoTradeProposed { action: String, approved: bool },
+    Rejected(String),
+    Filled(serde_json::Value),
+}
+
+struct GuardCycleReport {
+    decision: serde_json::Value,
+    evidence_bundle: Option<serde_json::Value>,
+    outcome: GuardCycleOutcome,
+}
+
+/// Runs one recommendation → evidence → guard-authorization cycle. See
+/// `GuardCycleOutcome`'s doc comment for what counts as this function's
+/// `Err` versus a legitimate `Ok(GuardCycleOutcome::Rejected(_))`.
+fn run_guard_cycle(
+    engine: &SmartHedgeEngine,
+    symbol: &str,
+    overrides: &ContractOverrides,
+    intelligence_binary: &Path,
+    guard_binary: &Path,
+) -> Result<GuardCycleReport, CliError> {
+    let decision = engine.recommendation(symbol, overrides)?;
+
+    let action = decision["policy"]["action"].as_str().unwrap_or("").to_string();
+    let approved = decision["policy"]["paper_preview_approved"].as_bool().unwrap_or(false);
+    let preview_shares = decision["policy"]["paper_trade_preview_shares"].as_f64().unwrap_or(0.0);
+    if action != "paper_rebalance_preview" || !approved || preview_shares == 0.0 {
+        return Ok(GuardCycleReport { decision, evidence_bundle: None, outcome: GuardCycleOutcome::NoTradeProposed { action, approved } });
+    }
+
+    let mut intelligence = IntelligenceClient::spawn(intelligence_binary)
+        .map_err(|e| CliError::GuardDemo(format!("failed to start market-intelligence-mcp ({}): {e}", intelligence_binary.display())))?;
+    intelligence
+        .ingest_source_records(DEMO_SOURCE_ID)
+        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp ingest-source-records failed: {e}")))?;
+    let history = intelligence
+        .get_source_record_history(DEMO_SOURCE_RECORD_ID)
+        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp get-source-record-history failed: {e}")))?;
+    let record = history
+        .as_array()
+        .and_then(|arr| arr.first())
+        .cloned()
+        .ok_or_else(|| CliError::GuardDemo("market-intelligence-mcp returned no history for the demo fixture record".to_string()))?;
+
+    let decision_id = decision["decision_id"].as_str().unwrap_or("unknown-decision").to_string();
+    let created_at = decision["created_at"].as_str().unwrap_or("1970-01-01T00:00:00Z").to_string();
+    let evidence_bundle_id = format!("bundle-{decision_id}");
+    let evidence_bundle = intelligence
+        .build_evidence_bundle(
+            &evidence_bundle_id,
+            vec![json!({"record": record, "decision": demo_source_use_decision()})],
+            "research",
+            &created_at,
+        )
+        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp build-evidence-bundle failed: {e}")))?;
+
+    // Deliberately a fresh timestamp, not `created_at` from the
+    // recommendation above: `TradeIntent.decision-time` means "when was
+    // the decision to submit this trade finalized," which is now — after
+    // evidence was gathered — not backdated to when the underlying
+    // deterministic recommendation happened to be computed. Reusing
+    // `created_at` here would make `check-evidence-eligibility` correctly
+    // reject the intent with `evidence-bundle-created-after-decision`,
+    // since the evidence bundle's own `created-at` (also "now", set by
+    // `market-intelligence-mcp`) would then postdate it.
+    let decision_time = smart_hedge_models::TimestampUtc::now().to_iso_string();
+    let confidence = decision["model_assessment"]["confidence"].as_f64().unwrap_or(0.0);
+    let instrument_id = format!("us-equity-{}", symbol.to_lowercase());
+    let side = if preview_shares > 0.0 { TradeSide::Buy } else { TradeSide::Sell };
+    let intent = build_trade_intent(&TradeIntentParams {
+        intent_id: &decision_id,
+        strategy_id: "smart-dynamic-hedge",
+        decision_id: &decision_id,
+        account_alias: "paper-default",
+        instrument_id: &instrument_id,
+        symbol,
+        side,
+        quantity: preview_shares.abs(),
+        decision_time: &decision_time,
+        confidence,
+        idempotency_key: &decision_id,
+        evidence_bundle_id: Some(&evidence_bundle_id),
+    });
+
+    let mut guard = GuardClient::spawn(guard_binary)
+        .map_err(|e| CliError::GuardDemo(format!("failed to start trade-guard-mcp ({}): {e}", guard_binary.display())))?;
+    let outcome = match guard.authorize_and_submit_paper_order(intent, Some(evidence_bundle.clone())) {
+        Ok(value) => GuardCycleOutcome::Filled(value),
+        // A rejection (insufficient buying power, evidence ineligible,
+        // etc.) is a legitimate, informative outcome, not a hard failure.
+        Err(smart_hedge_mcp_client::ClientError::Tool(text)) => GuardCycleOutcome::Rejected(text),
+        Err(e) => return Err(CliError::GuardDemo(format!("trade-guard-mcp authorize-and-submit-paper-order failed: {e}"))),
+    };
+
+    Ok(GuardCycleReport { decision, evidence_bundle: Some(evidence_bundle), outcome })
+}
+
 /// Port of Phase 4 in `06-implementation-order-and-acceptance.md`'s
 /// minimal slice: run the real deterministic recommendation, fetch real
 /// evidence from `market-intelligence-mcp`, build a typed `TradeIntent`
@@ -263,91 +367,141 @@ pub fn cmd_guard_demo(
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
     let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
-    let decision = engine.recommendation(symbol, &to_engine_overrides(overrides))?;
+    let engine_overrides = to_engine_overrides(overrides);
+
+    let report = run_guard_cycle(&engine, symbol, &engine_overrides, &intelligence_binary, &guard_binary)?;
     println!("=== smart-dynamic-hedge recommendation ===");
-    println!("{}", serde_json::to_string_pretty(&decision).expect("decision is always serializable"));
+    println!("{}", serde_json::to_string_pretty(&report.decision).expect("decision is always serializable"));
 
-    let action = decision["policy"]["action"].as_str().unwrap_or("");
-    let approved = decision["policy"]["paper_preview_approved"].as_bool().unwrap_or(false);
-    let preview_shares = decision["policy"]["paper_trade_preview_shares"].as_f64().unwrap_or(0.0);
-    if action != "paper_rebalance_preview" || !approved || preview_shares == 0.0 {
-        println!("\n=== no trade proposed (action={action:?}, approved={approved}) — trade-guard-mcp not called ===");
-        return Ok(0);
-    }
-
-    let mut intelligence = IntelligenceClient::spawn(&intelligence_binary)
-        .map_err(|e| CliError::GuardDemo(format!("failed to start market-intelligence-mcp ({}): {e}", intelligence_binary.display())))?;
-    intelligence
-        .ingest_source_records(DEMO_SOURCE_ID)
-        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp ingest-source-records failed: {e}")))?;
-    let history = intelligence
-        .get_source_record_history(DEMO_SOURCE_RECORD_ID)
-        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp get-source-record-history failed: {e}")))?;
-    let record = history
-        .as_array()
-        .and_then(|arr| arr.first())
-        .cloned()
-        .ok_or_else(|| CliError::GuardDemo("market-intelligence-mcp returned no history for the demo fixture record".to_string()))?;
-
-    let decision_id = decision["decision_id"].as_str().unwrap_or("unknown-decision").to_string();
-    let created_at = decision["created_at"].as_str().unwrap_or("1970-01-01T00:00:00Z").to_string();
-    let evidence_bundle_id = format!("bundle-{decision_id}");
-    let evidence_bundle = intelligence
-        .build_evidence_bundle(
-            &evidence_bundle_id,
-            vec![json!({"record": record, "decision": demo_source_use_decision()})],
-            "research",
-            &created_at,
-        )
-        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp build-evidence-bundle failed: {e}")))?;
-    println!("\n=== market-intelligence-mcp evidence bundle ===");
-    println!("{}", serde_json::to_string_pretty(&evidence_bundle).expect("evidence bundle is always serializable"));
-
-    // Deliberately a fresh timestamp, not `created_at` from the
-    // recommendation above: `TradeIntent.decision-time` means "when was
-    // the decision to submit this trade finalized," which is now — after
-    // evidence was gathered — not backdated to when the underlying
-    // deterministic recommendation happened to be computed. Reusing
-    // `created_at` here would make `check-evidence-eligibility` correctly
-    // reject the intent with `evidence-bundle-created-after-decision`,
-    // since the evidence bundle's own `created-at` (also "now", set by
-    // `market-intelligence-mcp`) would then postdate it.
-    let decision_time = smart_hedge_models::TimestampUtc::now().to_iso_string();
-    let confidence = decision["model_assessment"]["confidence"].as_f64().unwrap_or(0.0);
-    let instrument_id = format!("us-equity-{}", symbol.to_lowercase());
-    let side = if preview_shares > 0.0 { TradeSide::Buy } else { TradeSide::Sell };
-    let intent = build_trade_intent(&TradeIntentParams {
-        intent_id: &decision_id,
-        strategy_id: "smart-dynamic-hedge",
-        decision_id: &decision_id,
-        account_alias: "paper-default",
-        instrument_id: &instrument_id,
-        symbol,
-        side,
-        quantity: preview_shares.abs(),
-        decision_time: &decision_time,
-        confidence,
-        idempotency_key: &decision_id,
-        evidence_bundle_id: Some(&evidence_bundle_id),
-    });
-
-    let mut guard = GuardClient::spawn(&guard_binary)
-        .map_err(|e| CliError::GuardDemo(format!("failed to start trade-guard-mcp ({}): {e}", guard_binary.display())))?;
-    let result = guard.authorize_and_submit_paper_order(intent, Some(evidence_bundle));
-    println!("\n=== trade-guard-mcp paper-order result ===");
-    match result {
-        Ok(value) => {
-            println!("{}", serde_json::to_string_pretty(&value).expect("guard result is always serializable"));
-            Ok(0)
+    match report.outcome {
+        GuardCycleOutcome::NoTradeProposed { action, approved } => {
+            println!("\n=== no trade proposed (action={action:?}, approved={approved}) — trade-guard-mcp not called ===");
         }
-        Err(smart_hedge_mcp_client::ClientError::Tool(text)) => {
-            // A rejection (insufficient buying power, evidence ineligible,
-            // etc.) is a legitimate, informative outcome of this demo, not
-            // a CLI failure.
+        GuardCycleOutcome::Rejected(text) => {
+            print_evidence_bundle(&report.evidence_bundle);
+            println!("\n=== trade-guard-mcp paper-order result ===");
             println!("{text}");
-            Ok(0)
         }
-        Err(e) => Err(CliError::GuardDemo(format!("trade-guard-mcp authorize-and-submit-paper-order failed: {e}"))),
+        GuardCycleOutcome::Filled(value) => {
+            print_evidence_bundle(&report.evidence_bundle);
+            println!("\n=== trade-guard-mcp paper-order result ===");
+            println!("{}", serde_json::to_string_pretty(&value).expect("guard result is always serializable"));
+        }
+    }
+    Ok(0)
+}
+
+fn print_evidence_bundle(evidence_bundle: &Option<serde_json::Value>) {
+    if let Some(bundle) = evidence_bundle {
+        println!("\n=== market-intelligence-mcp evidence bundle ===");
+        println!("{}", serde_json::to_string_pretty(bundle).expect("evidence bundle is always serializable"));
+    }
+}
+
+/// The "autonomous (non-manual) paper operation" gap `docs/ROADMAP.md`
+/// Phase 4 named: `guard-demo` proves the full recommendation → evidence
+/// → guard-authorization chain works once, but a human has to re-invoke
+/// it every cycle. `autonomous` runs that same chain on a timer without a
+/// human re-invoking anything each iteration — still paper-only (nothing
+/// in this repository's dependency graph can place a live order; see
+/// `smart_hedge_audit`), and still explicitly started by a human once,
+/// not scheduled or self-initiating.
+///
+/// Safety gates on top of everything `evaluate_policy` and
+/// `trade-guard-mcp`'s own paper simulator already enforce (including the
+/// `STALE_QUOTE` check that already pauses trading on stale data — see
+/// `rust/README.md` "Point-in-time backtester" for the bug that check
+/// used to have):
+///  - **stop file**: checked at the top of every iteration; if present,
+///    the loop halts cleanly. The kill switch — an operator drops a file,
+///    the loop notices within one interval, no signal handling needed.
+///  - **`--max-iterations`**: an optional hard cap, for bounded runs
+///    (testing, a supervised session) instead of "forever" by default.
+///  - **consecutive-error circuit breaker**: a *hard* error (a sibling
+///    process failed to spawn, or spoke a broken protocol) halts the loop
+///    after `max_consecutive_errors` in a row, instead of hammering a
+///    broken dependency forever. A policy rejection is not an error here
+///    — it is the guard doing its job — and resets the counter to zero,
+///    the same as a fill or a "no trade proposed" cycle.
+#[allow(clippy::too_many_arguments)]
+pub fn cmd_autonomous(
+    config_path: Option<PathBuf>,
+    symbol: &str,
+    overrides: ContractOverrideArgs,
+    interval: f64,
+    model: Option<String>,
+    intelligence_binary: Option<PathBuf>,
+    guard_binary: Option<PathBuf>,
+    max_iterations: Option<u32>,
+    max_consecutive_errors: u32,
+    stop_file: Option<PathBuf>,
+) -> Result<i32, CliError> {
+    let intelligence_binary = resolve_sibling_binary(intelligence_binary, "MARKET_INTELLIGENCE_MCP_BIN").ok_or_else(|| {
+        CliError::Autonomous(
+            "autonomous needs market-intelligence-mcp's server binary: pass --intelligence-binary or set MARKET_INTELLIGENCE_MCP_BIN"
+                .to_string(),
+        )
+    })?;
+    let guard_binary = resolve_sibling_binary(guard_binary, "TRADE_GUARD_MCP_BIN").ok_or_else(|| {
+        CliError::Autonomous("autonomous needs trade-guard-mcp's server binary: pass --guard-binary or set TRADE_GUARD_MCP_BIN".to_string())
+    })?;
+
+    let root = project_root()?;
+    let loaded = load_config(resolve_config_path(config_path), &root)?;
+    let cpp_source = cpp_source_path(&root);
+    let stop_file = stop_file.unwrap_or_else(|| root.join(".smart-hedge-stop"));
+    let engine = build_engine(loaded, root, cpp_source, model.as_deref())?;
+    let engine_overrides = to_engine_overrides(overrides);
+    let sleep_for = Duration::from_secs_f64(interval.max(1.0));
+    let max_consecutive_errors = max_consecutive_errors.max(1);
+
+    let mut iteration: u32 = 0;
+    let mut consecutive_errors: u32 = 0;
+    loop {
+        if stop_file.exists() {
+            println!("stop file {} present -- halting after {iteration} iteration(s)", stop_file.display());
+            return Ok(0);
+        }
+        if max_iterations.is_some_and(|max| iteration >= max) {
+            println!("reached --max-iterations={} -- halting", max_iterations.expect("is_some_and checked above"));
+            return Ok(0);
+        }
+
+        match run_guard_cycle(&engine, symbol, &engine_overrides, &intelligence_binary, &guard_binary) {
+            Ok(report) => {
+                consecutive_errors = 0;
+                println!("{}", autonomous_cycle_line(iteration, symbol, &report));
+            }
+            Err(e) => {
+                consecutive_errors += 1;
+                eprintln!("iteration {iteration}: error ({consecutive_errors}/{max_consecutive_errors} consecutive): {e}");
+                if consecutive_errors >= max_consecutive_errors {
+                    return Err(CliError::Autonomous(format!(
+                        "halting after {consecutive_errors} consecutive errors (max_consecutive_errors={max_consecutive_errors}); last error: {e}"
+                    )));
+                }
+            }
+        }
+
+        iteration += 1;
+        std::thread::sleep(sleep_for);
+    }
+}
+
+fn autonomous_cycle_line(iteration: u32, symbol: &str, report: &GuardCycleReport) -> String {
+    let created_at = report.decision["created_at"].as_str().unwrap_or("");
+    match &report.outcome {
+        GuardCycleOutcome::NoTradeProposed { action, approved } => {
+            format!("[{iteration}] {created_at} {symbol} no trade proposed (action={action}, approved={approved})")
+        }
+        GuardCycleOutcome::Rejected(text) => {
+            format!("[{iteration}] {created_at} {symbol} rejected by trade-guard-mcp: {text}")
+        }
+        GuardCycleOutcome::Filled(value) => {
+            let state = value["order"]["state"].as_str().unwrap_or("?");
+            let quantity = value["order"]["filled-quantity"].as_str().unwrap_or("?");
+            format!("[{iteration}] {created_at} {symbol} filled: state={state} quantity={quantity}")
+        }
     }
 }
 

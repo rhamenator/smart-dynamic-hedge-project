@@ -370,6 +370,23 @@ archive in this system. See [`rust/README.md`](rust/README.md)
 "Point-in-time backtester" for the full explanation, including a real
 `evaluate_policy` bug this feature's own end-to-end test found and fixed.
 
+## Autonomous (non-manual) paper operation
+
+```bash
+export MARKET_INTELLIGENCE_MCP_BIN=/path/to/market-intelligence-mcp/target/release/market_intelligence_server
+export TRADE_GUARD_MCP_BIN=/path/to/trade-guard-mcp/target/release/trade_guard_server
+./rust/target/release/smart-hedge --config config.example.json autonomous --symbol SPY --interval 15
+```
+
+Runs the full recommendation → evidence → guard-authorization chain on a
+timer, without a human re-invoking `guard-demo` every cycle — still
+paper-only, still explicitly started by a human once. A stop-file kill
+switch, `--max-iterations`, and a consecutive-error circuit breaker
+(`--max-consecutive-errors`) bound what an unattended run can do. See
+[`rust/README.md`](rust/README.md) "Autonomous (non-manual) paper
+operation" for the full explanation and what was verified against the
+real sibling binaries.
+
 ## Direct C++ use
 
 ```bash
