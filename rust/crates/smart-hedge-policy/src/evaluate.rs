@@ -26,12 +26,25 @@ fn clamp_like_python(x: f64, lo: f64, hi: f64) -> f64 {
 /// validated. Every existing Python test case's inputs are well-formed, so
 /// this is not a parity loss for any covered behavior, only a move of
 /// where the "malformed" class of error surfaces.
+///
+/// `now` is explicit — same reasoning as `contract::resolve_contract`'s
+/// own `now` parameter — rather than this function reading
+/// `TimestampUtc::now()` internally as an earlier version did. That
+/// earlier version made the `STALE_QUOTE` check silently wrong for any
+/// caller simulating a *different* point in time than the real wall
+/// clock: `smart-hedge-backtest`'s point-in-time backtester feeds
+/// synthetic quotes timestamped on past/future simulated days, and every
+/// one of them was (correctly, given the bug) rejected as stale relative
+/// to the real "now" — found by that crate's own real end-to-end test,
+/// not by inspection. `SmartHedgeEngine::recommendation_at` already had
+/// the caller's `now` in scope; it just wasn't threading it through here.
 pub fn evaluate_policy(
     config: &Config,
     snapshot: &MarketSnapshot,
     features: &FeatureSet,
     core: &CoreResponse,
     assessment: &ModelAssessment,
+    now: TimestampUtc,
 ) -> PolicyDecision {
     let policy = &config.policy;
     let mut blockers: Vec<String> = Vec::new();
@@ -49,7 +62,7 @@ pub fn evaluate_policy(
     let quote_time = TimestampUtc::parse_flexible(&snapshot.quote.timestamp);
     let max_age = policy.max_quote_age_seconds;
     let quote_age = match quote_time {
-        Some(qt) => qt.seconds_until(&TimestampUtc::now()).max(0.0),
+        Some(qt) => qt.seconds_until(&now).max(0.0),
         None => f64::INFINITY,
     };
     if quote_age > max_age {

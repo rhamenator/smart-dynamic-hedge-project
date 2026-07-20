@@ -20,6 +20,7 @@ fn run(raw_args: &[String]) -> Result<i32, CliError> {
             commands::cmd_guard_demo(parsed.config, &symbol, overrides, intelligence_binary, guard_binary)
         }
         Command::Portfolio { symbols } => commands::cmd_portfolio(parsed.config, symbols),
+        Command::Backtest { symbol, days, start } => commands::cmd_backtest(parsed.config, &symbol, days, start),
     }
 }
 

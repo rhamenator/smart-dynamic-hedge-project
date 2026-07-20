@@ -30,12 +30,13 @@ working tree.
 | `smart-hedge-engine` | `python/smart_hedge/engine.py` | fixture-tested + real end-to-end + randomized workout tests — 31 tests (was 26), including a full `recommendation` → `replay`/`recent` round trip against the real C++ core, both branches of the adviser-failure/fallback path, a 25-iteration randomized "chaos" run (random symbols including unconfigured ones, boundary/out-of-range contract overrides, an unpredictably-failing adviser) asserting no panic and paper-only invariants hold throughout, and `build_advisor_by_name` (the `MODEL_URI` router's registry lookup — an unconfigured non-`"default"` name is a distinct error, never a silent fallback) |
 | `smart-hedge-dashboard` | `python/smart_hedge/dashboard.py` | fixture-tested + real end-to-end integration tests — 32 tests, including 8 that bind a real ephemeral TCP port, run the real accept loop, and make real HTTP requests against it |
 | `smart-hedge-mcp` | `python/smart_hedge/mcp_server.py` | fixture-tested — 19 tests covering the JSON-RPC 2.0 envelope, all six tools, and the MCP-specific "tool failure is an `isError` result, not a protocol error" distinction |
-| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand, plus new `guard-demo`/`portfolio` subcommands with no Python equivalent) | fixture-tested + real subprocess integration tests — 41 tests (32 unit + 9 integration), including spawning the real binary as `serve` and making a real HTTP request against it, spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio, and `once`/`loop`'s new `--model <name>` flag (the `MODEL_URI` router, routing through `config.model.models` instead of the legacy single adviser) |
+| `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand, plus new `guard-demo`/`portfolio`/`backtest` subcommands with no Python equivalent) | fixture-tested + real subprocess integration tests — 44 tests (35 unit + 9 integration, was 41), including spawning the real binary as `serve` and making a real HTTP request against it, spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio, `once`/`loop`'s `--model <name>` flag (the `MODEL_URI` router), and the new `backtest` subcommand's argument parsing (`--symbol`/`--days`/`--start`) |
 | `smart-hedge-audit` | (no Python equivalent — a new, repo-wide structural check) | 5 tests: a real scan of every `.rs` file in this workspace asserting none names or constructs an order-placement request, plus four self-tests proving the checker actually detects a planted violation rather than being vacuously true |
 | `smart-hedge-mcp-client` | (no Python equivalent — new, for the V2 multi-repository integration) | fixture-tested + real end-to-end — 7 tests. A generic, dependency-free MCP stdio JSON-RPC client (spawn a server binary, one request per line, read one response line), the client-side counterpart to this workspace's own `smart-hedge-mcp` server. Tests spawn this repository's own `smart-hedge` binary as the server under test, so this crate's suite needs no sibling repository built. |
 | `smart-hedge-intelligence-client` | (no Python equivalent) | 1 test — a thin typed wrapper over `smart-hedge-mcp-client` for `market-intelligence-mcp`'s 11 read-only tools (`health`, `list-configured-sources`, `build-evidence-bundle`, etc.). |
 | `smart-hedge-guard-client` | (no Python equivalent) | fixture-tested — 4 tests, including `build_trade_intent`'s `decimal-string` formatting (`common.schema.json`'s exact grammar) verified against several boundary cases. A thin typed wrapper over `smart-hedge-mcp-client` for `trade-guard-mcp`'s `authorize-and-submit-paper-order` and account-snapshot tools. |
 | `smart-hedge-portfolio` | (no Python equivalent — Phase 4 "portfolio pricing/Greeks/hedging expansion") | fixture-tested + real end-to-end — 6 tests. Calls the *unchanged* C++ core once per position and aggregates into dollar-denominated portfolio Greeks (dollar delta, dollar gamma P&L, dollar vega/theta/rho, stock/option notional) — additive across different underlyings, unlike raw per-underlying share counts. No pricing math lives here; see the crate's own module doc comment for why that split matters. |
+| `smart-hedge-backtest` | (no Python equivalent — Phase 4's named "point-in-time backtester" gap) | fixture-tested + real end-to-end — 3 tests, including one that runs a real 10-day backtest against the real C++ core (skips gracefully without a toolchain). Steps a deterministic synthetic price path day by day through the same real pipeline `recommendation_at` uses, threading each day's trade forward into the next day's `current_shares` and decaying `days_to_expiry`. See "Point-in-time backtester" below, including the real `evaluate_policy` bug this crate's own end-to-end test found and fixed. |
 
 **The full CLI surface — including `serve` (a real HTTP dashboard) and
 `mcp` (a real MCP stdio server) — is now a fully working, independently
@@ -53,7 +54,7 @@ simulator — three independently-built binaries from three separate
 repositories, talking over real subprocess/stdio boundaries, not fixtures.
 See "Connecting the three repositories" below.
 
-**Total: 452 tests, `cargo test --workspace` all green, `cargo clippy
+**Total: 458 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
 
 ## The `MODEL_URI` router
@@ -393,6 +394,56 @@ call), about a real (non-fixture) intelligence source, or about anything
 beyond the paper-only path — `trade-guard-mcp` has no live-execution path
 in source at all, so there is nothing further this integration could
 exercise on that axis yet.
+
+## Point-in-time backtester
+
+`docs/ROADMAP.md` Phase 4 named this as an open gap: nothing exercised the
+full pipeline over a multi-day run with evolving inputs, only single
+`once` calls. `smart-hedge-backtest`'s `run_backtest` steps a
+deterministic synthetic price path day by day through the *same* real
+pipeline `SmartHedgeEngine::recommendation_at` uses — `build_features` →
+the real C++ core → `HeuristicAdvisor` → `evaluate_policy` — threading
+each day's resulting `paper_trade_preview_shares` forward into the next
+day's `current_shares` and decrementing `days_to_expiry`, so an option
+genuinely decays toward expiry over the run rather than a fixed snapshot
+replayed unchanged.
+
+```bash
+./target/release/smart-hedge --config config.example.json backtest --symbol SPY --days 20 --start 2026-01-01T00:00:00Z
+```
+
+"Point-in-time" here means what `smart_hedge_data::SyntheticProvider::snapshot_at`
+already guarantees: a given `(symbol, timestamp)` pair always produces the
+same snapshot, and a day's snapshot is generated only from that day's own
+timestamp — no look-ahead is possible by construction, not merely by
+convention.
+
+**This is a synthetic backtester, not a historical one.** There is no
+real market-data history anywhere in this system (`smart-hedge-data`'s
+`AlpacaReadOnlyProvider` only ever fetches *current* quotes/bars, never a
+historical archive — see "What this does not prove" above). What it does
+prove: the full feature → core → adviser → policy pipeline behaves
+sensibly over a multi-day run with evolving inputs.
+
+**Building this surfaced and fixed a real bug.** A real 20-day smoke test
+initially produced `total_turnover_shares: 0.0, trading_days: 0` — every
+single simulated day blocked with `STALE_QUOTE`. Root cause:
+`evaluate_policy` computed quote age via `TimestampUtc::now()` internally
+— the *real* wall clock — rather than accepting the caller's simulated
+`now`, so a synthetic Jan-2026 quote always appeared enormously stale
+relative to whatever the real current time actually was. This directly
+contradicted the "point-in-time, no look-ahead" design intent, and no
+existing unit test caught it because every test fixture coincidentally
+used the real clock for both the quote timestamp and the implicit
+policy-clock read — the mismatch only manifested when a genuinely
+different simulated date was used. Fixed by adding an explicit `now:
+TimestampUtc` parameter to `evaluate_policy` (the same explicit-`now`
+convention `resolve_contract`/`recommendation_at` already use) and
+threading it through all 17 call sites in the workspace
+(`smart-hedge-backtest`, `smart-hedge-engine::engine.rs`, and 15 in
+`smart-hedge-policy::parity_tests.rs`). Re-verified against the same
+scenario after the fix: `total_turnover_shares: 96.48…, trading_days: 13,
+final_current_shares: 49.60…`, zero `STALE_QUOTE` occurrences.
 
 ## Building and testing
 

@@ -97,7 +97,7 @@ impl SmartHedgeEngine {
             }
         };
 
-        let policy = evaluate_policy(&self.loaded_config.config, &snapshot, &features, &core, &assessment);
+        let policy = evaluate_policy(&self.loaded_config.config, &snapshot, &features, &core, &assessment, now);
         let decision_id = new_unique_id();
         let created_at = now.to_iso_string();
 

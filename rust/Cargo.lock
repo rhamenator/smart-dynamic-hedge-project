@@ -421,10 +421,27 @@ name = "smart_hedge_audit"
 version = "0.1.0"
 
 [[package]]
+name = "smart_hedge_backtest"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "smart_hedge_config",
+ "smart_hedge_core_bridge",
+ "smart_hedge_data",
+ "smart_hedge_engine",
+ "smart_hedge_features",
+ "smart_hedge_model_advisor",
+ "smart_hedge_models",
+ "smart_hedge_policy",
+]
+
+[[package]]
 name = "smart_hedge_cli"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "smart_hedge_backtest",
  "smart_hedge_config",
  "smart_hedge_core_bridge",
  "smart_hedge_dashboard",

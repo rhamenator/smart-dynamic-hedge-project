@@ -15,6 +15,7 @@ pub enum Command {
     Mcp,
     GuardDemo { symbol: String, overrides: ContractOverrideArgs, intelligence_binary: Option<PathBuf>, guard_binary: Option<PathBuf> },
     Portfolio { symbols: Vec<String> },
+    Backtest { symbol: String, days: u32, start: Option<String> },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -45,7 +46,7 @@ pub enum ArgsError {
 impl fmt::Display for ArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo, portfolio)"),
+            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo, portfolio, backtest)"),
             Self::UnknownCommand(c) => write!(f, "unknown command: {c}"),
             Self::UnknownFlag { command, flag } => write!(f, "unknown flag {flag} for command {command}"),
             Self::MissingValueFor(flag) => write!(f, "{flag} requires a value"),
@@ -258,6 +259,21 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
             let positionals = FlagCursor::new(tail).run("portfolio", |_, _| Ok(false))?;
             let symbols = positionals.iter().map(|s| s.to_uppercase()).collect();
             Command::Portfolio { symbols }
+        }
+        "backtest" => {
+            let mut symbol = "SPY".to_string();
+            let mut days = 30u32;
+            let mut start: Option<String> = None;
+            FlagCursor::new(tail).run("backtest", |name, value| {
+                match name {
+                    "symbol" => symbol = value.to_string(),
+                    "days" => days = parse_i64("--days", value)?.clamp(0, 100_000) as u32,
+                    "start" => start = Some(value.to_string()),
+                    _ => return Ok(false),
+                }
+                Ok(true)
+            })?;
+            Command::Backtest { symbol: symbol.to_uppercase(), days, start }
         }
         other => return Err(ArgsError::UnknownCommand(other.to_string())),
     };
@@ -499,5 +515,26 @@ mod tests {
     fn portfolio_symbols_are_uppercased() {
         let parsed = parse_args(&args(&["portfolio", "spy", "qqq"])).unwrap();
         assert_eq!(parsed.command, Command::Portfolio { symbols: vec!["SPY".to_string(), "QQQ".to_string()] });
+    }
+
+    #[test]
+    fn backtest_defaults_to_spy_thirty_days_no_explicit_start() {
+        let parsed = parse_args(&args(&["backtest"])).unwrap();
+        assert_eq!(parsed.command, Command::Backtest { symbol: "SPY".to_string(), days: 30, start: None });
+    }
+
+    #[test]
+    fn backtest_accepts_symbol_days_and_start_overrides() {
+        let parsed = parse_args(&args(&["backtest", "--symbol", "qqq", "--days", "10", "--start", "2026-01-01T00:00:00Z"])).unwrap();
+        assert_eq!(
+            parsed.command,
+            Command::Backtest { symbol: "QQQ".to_string(), days: 10, start: Some("2026-01-01T00:00:00Z".to_string()) }
+        );
+    }
+
+    #[test]
+    fn backtest_rejects_a_non_numeric_days() {
+        let result = parse_args(&args(&["backtest", "--days", "abc"]));
+        assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--days".to_string(), value: "abc".to_string() }));
     }
 }

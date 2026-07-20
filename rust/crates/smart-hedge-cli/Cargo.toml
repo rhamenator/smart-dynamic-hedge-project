@@ -21,6 +21,7 @@ smart_hedge_mcp_client = { path = "../smart-hedge-mcp-client" }
 smart_hedge_intelligence_client = { path = "../smart-hedge-intelligence-client" }
 smart_hedge_guard_client = { path = "../smart-hedge-guard-client" }
 smart_hedge_portfolio = { path = "../smart-hedge-portfolio" }
+smart_hedge_backtest = { path = "../smart-hedge-backtest" }
 
 [lints]
 workspace = true

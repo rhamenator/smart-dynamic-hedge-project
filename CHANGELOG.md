@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased (point-in-time backtester, and a real evaluate_policy bug fix)
+
+Closes the last of the five gaps `docs/ROADMAP.md` Phase 4 named as still
+open that lives in this repository: no point-in-time backtester existed,
+only single `once` calls.
+
+- **New `smart-hedge-backtest` crate and `backtest` CLI subcommand**:
+  `./target/release/smart-hedge backtest --symbol SPY --days 20 --start
+  2026-01-01T00:00:00Z`. Steps a deterministic synthetic price path day by
+  day through the same real pipeline `recommendation_at` uses
+  (`build_features` → the real C++ core → `HeuristicAdvisor` →
+  `evaluate_policy`), threading each day's resulting trade forward into
+  the next day's `current_shares` and decrementing `days_to_expiry`.
+  No look-ahead is possible by construction:
+  `SyntheticProvider::snapshot_at(symbol, timestamp)` already guarantees a
+  day's snapshot depends only on that day's own timestamp. Synthetic, not
+  historical — there is no real market-data archive anywhere in this
+  system.
+- **Bug fix, found by this feature's own end-to-end test, not by
+  inspection: `evaluate_policy` read the real wall clock instead of the
+  caller's simulated time.** A real 20-day backtest smoke test initially
+  produced `total_turnover_shares: 0.0, trading_days: 0` — every single
+  day blocked with `STALE_QUOTE`. `evaluate_policy` computed quote age via
+  `TimestampUtc::now()` internally, so a synthetic Jan-2026 quote always
+  looked enormously stale relative to the real current time, contradicting
+  the backtester's point-in-time design. No existing unit test caught this
+  because every fixture coincidentally used the real clock for both the
+  quote timestamp and the implicit policy-clock read.
+  - **`evaluate_policy` gained an explicit `now: TimestampUtc` parameter**
+    (matching the `resolve_contract`/`recommendation_at` explicit-`now`
+    convention already used elsewhere), threaded through all 17 call
+    sites in the workspace (`smart-hedge-backtest`,
+    `smart-hedge-engine::engine.rs`, and 15 in
+    `smart-hedge-policy::parity_tests.rs`). This is a public signature
+    change to every caller of `evaluate_policy`, not just an internal
+    fix.
+  - Re-verified against the same scenario after the fix:
+    `total_turnover_shares: 96.48…, trading_days: 13,
+    final_current_shares: 49.60…`, zero `STALE_QUOTE` occurrences.
+- **6 new tests, 458 total** (was 452: 3 in `smart-hedge-backtest`,
+  including one that runs a real 10-day backtest against the real C++
+  core; 3 in `smart-hedge-cli` for the new `backtest` subcommand's
+  argument parsing), `cargo clippy --workspace --all-targets` clean.
+
 ## Unreleased (docs: international venue awareness landed in trade-guard-mcp)
 
 Cross-repo note only — no code in this repository changed. Closes

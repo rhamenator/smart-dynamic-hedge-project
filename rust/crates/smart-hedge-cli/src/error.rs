@@ -12,6 +12,7 @@ pub enum CliError {
     Io(std::io::Error),
     SelfTestFailed(String),
     GuardDemo(String),
+    Backtest(String),
 }
 
 impl fmt::Display for CliError {
@@ -25,6 +26,7 @@ impl fmt::Display for CliError {
             Self::Io(e) => write!(f, "{e}"),
             Self::SelfTestFailed(msg) => write!(f, "self-test failed: {msg}"),
             Self::GuardDemo(msg) => write!(f, "{msg}"),
+            Self::Backtest(msg) => write!(f, "{msg}"),
         }
     }
 }

@@ -356,6 +356,20 @@ behavior — see [`rust/README.md`](rust/README.md) "The `MODEL_URI`
 router" for the full explanation, including why this is explicit,
 human-driven routing rather than autonomous model selection.
 
+## Point-in-time backtester
+
+```bash
+./rust/target/release/smart-hedge --config config.example.json backtest --symbol SPY --days 20 --start 2026-01-01T00:00:00Z
+```
+
+Steps a deterministic synthetic price path day by day through the same
+real pipeline a live recommendation uses, threading each day's trade
+forward into the next day's stock position and decaying the option
+toward expiry. Synthetic, not historical — there is no real market-data
+archive in this system. See [`rust/README.md`](rust/README.md)
+"Point-in-time backtester" for the full explanation, including a real
+`evaluate_policy` bug this feature's own end-to-end test found and fixed.
+
 ## Direct C++ use
 
 ```bash

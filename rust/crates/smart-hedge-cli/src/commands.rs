@@ -379,6 +379,29 @@ pub fn cmd_portfolio(config_path: Option<PathBuf>, symbols: Vec<String>) -> Resu
     Ok(0)
 }
 
+/// Port of Phase 4's "point-in-time backtester": steps a deterministic
+/// synthetic price path day by day through the same real pipeline `once`
+/// uses, threading `current_shares` and `days_to_expiry` forward across
+/// days. See `smart_hedge_backtest`'s module doc comment for exactly what
+/// this proves (a real multi-day pipeline run) and doesn't (real
+/// historical market data, which doesn't exist anywhere in this system).
+pub fn cmd_backtest(config_path: Option<PathBuf>, symbol: &str, days: u32, start: Option<String>) -> Result<i32, CliError> {
+    let root = project_root()?;
+    let loaded = load_config(resolve_config_path(config_path), &root)?;
+    let cpp_source = cpp_source_path(&root);
+
+    let start = match start {
+        Some(s) => smart_hedge_models::TimestampUtc::parse_flexible(&s)
+            .ok_or_else(|| CliError::Backtest(format!("invalid --start timestamp: {s:?}")))?,
+        None => smart_hedge_models::TimestampUtc::now(),
+    };
+
+    let config = smart_hedge_backtest::BacktestConfig { symbol: symbol.to_string(), num_days: days, start };
+    let report = smart_hedge_backtest::run_backtest(&loaded, &root, &cpp_source, &config)?;
+    println!("{}", serde_json::to_string_pretty(&report).expect("backtest report is always serializable"));
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

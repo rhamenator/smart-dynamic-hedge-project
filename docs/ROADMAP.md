@@ -121,12 +121,39 @@ profile — this repository doesn't consume venue profiles directly (that's
 its first consumer are real now, not just documented. See that repo's
 `docs/CAPABILITY_STATUS.md` and `market-system-contracts`'s `CHANGELOG.md`.
 
+**Point-in-time backtester — done (2026-07-20).** New `smart-hedge-backtest`
+crate and `backtest` CLI subcommand: steps a deterministic synthetic price
+path day by day through the same real pipeline a live `recommendation`
+uses (`build_features` → the real C++ core → the heuristic adviser →
+`evaluate_policy`), threading each day's resulting trade forward into the
+next day's `current_shares` and decrementing `days_to_expiry` — an option
+genuinely decays toward expiry over the run, not a fixed snapshot replayed
+unchanged. No look-ahead is possible by construction:
+`SyntheticProvider::snapshot_at(symbol, timestamp)` already guarantees a
+day's snapshot depends only on that day's own timestamp. **This is a
+synthetic backtester, not a historical one** — there is no real
+market-data history anywhere in this system; see `rust/README.md`'s
+`smart-hedge-backtest` crate entry for exactly what it does and doesn't
+prove. Building it surfaced and fixed a real bug: `evaluate_policy` read
+the real wall clock internally for its `STALE_QUOTE` age check rather than
+accepting the caller's simulated `now`, so every single simulated day was
+incorrectly blocked as stale relative to whatever the real current time
+happened to be — found via a genuine end-to-end smoke test (`total_turnover_shares:
+0.0` across 20 days), not by inspection, since every existing unit test's
+fixtures coincidentally used the real clock for both the quote timestamp
+and the implicit policy-clock read. Fixed by adding an explicit `now`
+parameter to `evaluate_policy` (matching the `resolve_contract`/
+`recommendation_at` convention already used elsewhere) and threading it
+through all 17 call sites in the workspace. Re-verified via the same
+scenario: a real 20-day SPY backtest now produces 13 trading days and
+nonzero turnover, zero `STALE_QUOTE` blocks.
+
 Still not done, and explicitly out of scope so far:
 whale/corporate/political/price/options/FX/crypto signal integration
-beyond the one demo fixture, evidence-graph/source-use UI, a point-in-time
-backtester, and a paper-autonomous state machine (`guard-demo` is a
-one-shot manual command, not an autonomous loop). Each remains a
-distinct, later milestone, being worked through in sequence.
+beyond the one demo fixture, evidence-graph/source-use UI, and a
+paper-autonomous state machine (`guard-demo` is a one-shot manual command,
+not an autonomous loop). Each remains a distinct, later milestone, being
+worked through in sequence.
 
 ## Language and dependency policy (decided 2026-07-19)
 
