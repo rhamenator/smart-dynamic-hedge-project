@@ -5,6 +5,8 @@ use std::time::Duration;
 use serde_json::json;
 use smart_hedge_config::{EnvOverrides, LoadedConfig};
 use smart_hedge_engine::{ContractOverrides, SmartHedgeEngine};
+use smart_hedge_guard_client::{build_trade_intent, GuardClient, TradeIntentParams, TradeSide};
+use smart_hedge_intelligence_client::IntelligenceClient;
 
 use crate::args::ContractOverrideArgs;
 use crate::error::CliError;
@@ -174,6 +176,162 @@ pub fn cmd_mcp(config_path: Option<PathBuf>) -> Result<i32, CliError> {
     let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
     smart_hedge_mcp::run_stdio(&engine)?;
     Ok(0)
+}
+
+/// Same env-var-fallback pattern `resolve_config_path` uses for
+/// `SMART_HEDGE_CONFIG`, applied to the two sibling MCP server binaries
+/// this command needs but this repository does not build.
+fn resolve_sibling_binary(explicit: Option<PathBuf>, env_var: &str) -> Option<PathBuf> {
+    explicit.or_else(|| std::env::var(env_var).ok().map(PathBuf::from))
+}
+
+/// The one fixture this demo actually has data for —
+/// `market-intelligence-mcp`'s own demo binary hardcodes the same
+/// `us-house-periodic-transaction-report` source and
+/// `fixture-political-disclosure-1` record, reviewed under a
+/// `research-only` `SourceUseDecision`. This command reuses that exact
+/// fixture rather than inventing a different one, so what it proves is
+/// "the real `build-evidence-bundle` tool, called from a different
+/// process, over real subprocess/stdio boundaries" — not new fixture
+/// content.
+const DEMO_SOURCE_ID: &str = "us-house-periodic-transaction-report";
+const DEMO_SOURCE_RECORD_ID: &str = "fixture-political-disclosure-1";
+
+fn demo_source_use_decision() -> serde_json::Value {
+    json!({
+        "source-id": DEMO_SOURCE_ID,
+        "policy-version": "2026-07-19.1",
+        "public-access": true,
+        "automated-retrieval": "legal-review-required",
+        "commercial-use": "prohibited-or-unclear",
+        "trading-use": "research-only",
+        "redistribution": "prohibited-or-unclear",
+        "attribution-required": true,
+        "reviewed-at": "1970-01-01T00:00:00Z",
+        "reviewed-by": "operator",
+        "reason-codes": ["statutory-commercial-use-restriction"],
+    })
+}
+
+/// Port of Phase 4 in `06-implementation-order-and-acceptance.md`'s
+/// minimal slice: run the real deterministic recommendation, fetch real
+/// evidence from `market-intelligence-mcp`, build a typed `TradeIntent`
+/// from the recommendation's own paper-trade preview, and submit it to
+/// `trade-guard-mcp`'s real paper simulator — the first time this
+/// repository has actually exercised the intended
+/// `TradeIntent -> trade-guard-mcp` cross-repository flow end to end,
+/// rather than only documenting it. See
+/// `smart_hedge_guard_client`'s module doc comment for why calling a
+/// tool named `authorize-and-submit-paper-order` from this repository
+/// does not conflict with `smart_hedge_audit`'s no-order-placement
+/// invariant.
+pub fn cmd_guard_demo(
+    config_path: Option<PathBuf>,
+    symbol: &str,
+    overrides: ContractOverrideArgs,
+    intelligence_binary: Option<PathBuf>,
+    guard_binary: Option<PathBuf>,
+) -> Result<i32, CliError> {
+    let intelligence_binary = resolve_sibling_binary(intelligence_binary, "MARKET_INTELLIGENCE_MCP_BIN").ok_or_else(|| {
+        CliError::GuardDemo(
+            "guard-demo needs market-intelligence-mcp's server binary: pass --intelligence-binary or set MARKET_INTELLIGENCE_MCP_BIN"
+                .to_string(),
+        )
+    })?;
+    let guard_binary = resolve_sibling_binary(guard_binary, "TRADE_GUARD_MCP_BIN").ok_or_else(|| {
+        CliError::GuardDemo("guard-demo needs trade-guard-mcp's server binary: pass --guard-binary or set TRADE_GUARD_MCP_BIN".to_string())
+    })?;
+
+    let root = project_root()?;
+    let loaded = load_config(resolve_config_path(config_path), &root)?;
+    let cpp_source = cpp_source_path(&root);
+    let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
+    let decision = engine.recommendation(symbol, &to_engine_overrides(overrides))?;
+    println!("=== smart-dynamic-hedge recommendation ===");
+    println!("{}", serde_json::to_string_pretty(&decision).expect("decision is always serializable"));
+
+    let action = decision["policy"]["action"].as_str().unwrap_or("");
+    let approved = decision["policy"]["paper_preview_approved"].as_bool().unwrap_or(false);
+    let preview_shares = decision["policy"]["paper_trade_preview_shares"].as_f64().unwrap_or(0.0);
+    if action != "paper_rebalance_preview" || !approved || preview_shares == 0.0 {
+        println!("\n=== no trade proposed (action={action:?}, approved={approved}) — trade-guard-mcp not called ===");
+        return Ok(0);
+    }
+
+    let mut intelligence = IntelligenceClient::spawn(&intelligence_binary)
+        .map_err(|e| CliError::GuardDemo(format!("failed to start market-intelligence-mcp ({}): {e}", intelligence_binary.display())))?;
+    intelligence
+        .ingest_source_records(DEMO_SOURCE_ID)
+        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp ingest-source-records failed: {e}")))?;
+    let history = intelligence
+        .get_source_record_history(DEMO_SOURCE_RECORD_ID)
+        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp get-source-record-history failed: {e}")))?;
+    let record = history
+        .as_array()
+        .and_then(|arr| arr.first())
+        .cloned()
+        .ok_or_else(|| CliError::GuardDemo("market-intelligence-mcp returned no history for the demo fixture record".to_string()))?;
+
+    let decision_id = decision["decision_id"].as_str().unwrap_or("unknown-decision").to_string();
+    let created_at = decision["created_at"].as_str().unwrap_or("1970-01-01T00:00:00Z").to_string();
+    let evidence_bundle_id = format!("bundle-{decision_id}");
+    let evidence_bundle = intelligence
+        .build_evidence_bundle(
+            &evidence_bundle_id,
+            vec![json!({"record": record, "decision": demo_source_use_decision()})],
+            "research",
+            &created_at,
+        )
+        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp build-evidence-bundle failed: {e}")))?;
+    println!("\n=== market-intelligence-mcp evidence bundle ===");
+    println!("{}", serde_json::to_string_pretty(&evidence_bundle).expect("evidence bundle is always serializable"));
+
+    // Deliberately a fresh timestamp, not `created_at` from the
+    // recommendation above: `TradeIntent.decision-time` means "when was
+    // the decision to submit this trade finalized," which is now — after
+    // evidence was gathered — not backdated to when the underlying
+    // deterministic recommendation happened to be computed. Reusing
+    // `created_at` here would make `check-evidence-eligibility` correctly
+    // reject the intent with `evidence-bundle-created-after-decision`,
+    // since the evidence bundle's own `created-at` (also "now", set by
+    // `market-intelligence-mcp`) would then postdate it.
+    let decision_time = smart_hedge_models::TimestampUtc::now().to_iso_string();
+    let confidence = decision["model_assessment"]["confidence"].as_f64().unwrap_or(0.0);
+    let instrument_id = format!("us-equity-{}", symbol.to_lowercase());
+    let side = if preview_shares > 0.0 { TradeSide::Buy } else { TradeSide::Sell };
+    let intent = build_trade_intent(&TradeIntentParams {
+        intent_id: &decision_id,
+        strategy_id: "smart-dynamic-hedge",
+        decision_id: &decision_id,
+        account_alias: "paper-default",
+        instrument_id: &instrument_id,
+        symbol,
+        side,
+        quantity: preview_shares.abs(),
+        decision_time: &decision_time,
+        confidence,
+        idempotency_key: &decision_id,
+        evidence_bundle_id: Some(&evidence_bundle_id),
+    });
+
+    let mut guard = GuardClient::spawn(&guard_binary)
+        .map_err(|e| CliError::GuardDemo(format!("failed to start trade-guard-mcp ({}): {e}", guard_binary.display())))?;
+    let result = guard.authorize_and_submit_paper_order(intent, Some(evidence_bundle));
+    println!("\n=== trade-guard-mcp paper-order result ===");
+    match result {
+        Ok(value) => {
+            println!("{}", serde_json::to_string_pretty(&value).expect("guard result is always serializable"));
+            Ok(0)
+        }
+        Err(smart_hedge_mcp_client::ClientError::Tool(text)) => {
+            // A rejection (insufficient buying power, evidence ineligible,
+            // etc.) is a legitimate, informative outcome of this demo, not
+            // a CLI failure.
+            println!("{text}");
+            Ok(0)
+        }
+        Err(e) => Err(CliError::GuardDemo(format!("trade-guard-mcp authorize-and-submit-paper-order failed: {e}"))),
+    }
 }
 
 #[cfg(test)]

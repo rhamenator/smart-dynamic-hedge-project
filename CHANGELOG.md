@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased (Phase 4 minimal slice: real cross-repository paper-guard integration)
+
+Implements the core of `docs/ROADMAP.md`'s Phase 4 — the gate that opened
+once `trade-guard-mcp` and `market-intelligence-mcp` each reached their
+own vertical slice.
+
+- **`smart-hedge-mcp-client`** (new crate): a generic, dependency-free MCP
+  stdio JSON-RPC client — spawn a server binary, one request per line,
+  read one response line. The client-side counterpart to this workspace's
+  own `smart-hedge-mcp` server. 7 tests, spawning this repository's own
+  `smart-hedge` binary as the server under test (no sibling repository
+  needed to build this crate's own suite).
+- **`smart-hedge-intelligence-client`** / **`smart-hedge-guard-client`**
+  (new crates): thin typed wrappers over the generic client for
+  `market-intelligence-mcp`'s 11 read-only tools and `trade-guard-mcp`'s
+  paper-execution tools, respectively. `smart_hedge_guard_client::build_trade_intent`
+  constructs a real `TradeIntent` matching `market-system-contracts`'
+  wire shape, including a `decimal-string`-formatting helper verified
+  against `common.schema.json`'s exact grammar.
+- **New `guard-demo` CLI subcommand**: runs the real recommendation
+  pipeline, and — only when the policy actually proposes a trade — spawns
+  both sibling repositories' real MCP servers to fetch a real evidence
+  bundle and submit a real paper order. `--intelligence-binary`/
+  `--guard-binary` flags (or `MARKET_INTELLIGENCE_MCP_BIN`/
+  `TRADE_GUARD_MCP_BIN` env vars) point at their compiled binaries.
+- **Verified end to end against all three repositories' independently
+  built release binaries**: a real recommendation, a real
+  `market-intelligence-mcp` evidence bundle, and a real `trade-guard-mcp`
+  paper fill — the first time this three-repository architecture has
+  actually been exercised together, not just documented. Caught and fixed
+  a real bug in the process: the demo's first version backdated the
+  `TradeIntent`'s `decision-time` to the recommendation's own timestamp,
+  which made `check-evidence-eligibility` correctly reject it
+  (`evidence-bundle-created-after-decision`) since the evidence bundle,
+  built moments later, necessarily postdated it.
+- **419 tests total** (was 405), `cargo test --workspace` all green,
+  `cargo clippy --workspace --all-targets` clean. Also fixed a self-
+  tripped `smart_hedge_audit` false positive: `smart-hedge-guard-client`'s
+  own doc comment spelled out the literal forbidden substring
+  `submit_order` while explaining why it doesn't apply — same class of
+  bug as an earlier pass's `smart_hedge_mcp::protocol` fix, resolved the
+  same way (reworded without weakening the scanner).
+
 ## Unreleased (docs: trade-guard-mcp reaches a paper-only vertical slice)
 
 Cross-repo note only — no code in this repository changed. The sibling

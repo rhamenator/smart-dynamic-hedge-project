@@ -11,6 +11,7 @@ pub enum CliError {
     Dashboard(smart_hedge_dashboard::DashboardError),
     Io(std::io::Error),
     SelfTestFailed(String),
+    GuardDemo(String),
 }
 
 impl fmt::Display for CliError {
@@ -23,6 +24,7 @@ impl fmt::Display for CliError {
             Self::Dashboard(e) => write!(f, "{e}"),
             Self::Io(e) => write!(f, "{e}"),
             Self::SelfTestFailed(msg) => write!(f, "self-test failed: {msg}"),
+            Self::GuardDemo(msg) => write!(f, "{msg}"),
         }
     }
 }

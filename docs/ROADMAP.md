@@ -72,13 +72,28 @@ split across three repositories with separate security boundaries:
   `docs/CAPABILITY_STATUS.md` for the exact scope cuts and why each is
   deliberate, not an oversight.
 
-None of this repository's own code changed as part of the V2 expansion
-itself. `trade-guard-mcp` reaching a paper-only vertical slice (its own
-Phase 3) is the gate the next milestone here was waiting on. That next
-milestone is Phase 4 in `06-implementation-order-and-acceptance.md` of the
-prompt bundle: add typed clients for the two sibling services,
-international instrument/venue schemas, and the `MODEL_URI` router. Not
-yet started in this repository as of this note.
+**Phase 4 — smallest complete slice done (2026-07-20).** Three new crates
+(`smart-hedge-mcp-client`, `smart-hedge-intelligence-client`,
+`smart-hedge-guard-client`) and a new `guard-demo` CLI subcommand
+implement the core of Phase 4 in `06-implementation-order-and-acceptance.md`:
+typed clients for both sibling services, and real
+`TradeIntent -> trade-guard-mcp` paper-guard integration. Verified end to
+end against all three repositories' independently built release
+binaries — a real recommendation, a real `market-intelligence-mcp`
+evidence bundle, and a real `trade-guard-mcp` paper fill, three separate
+processes talking only over stdio. See `rust/README.md` "Connecting the
+three repositories" for the full flow and exactly what is and isn't
+proven.
+
+Not yet done, and explicitly out of scope for this pass: international
+instrument/venue schemas, the `MODEL_URI` router (this repository still
+selects its model adviser via `SMART_HEDGE_MODEL_KIND`/`SMART_HEDGE_PROVIDER`,
+not a routed multi-model registry), whale/corporate/political/price/
+options/FX/crypto signal integration beyond the one demo fixture,
+evidence-graph/source-use UI, C++ portfolio-level pricing/Greeks
+expansion, a point-in-time backtester, and a paper-autonomous state
+machine (`guard-demo` is a one-shot manual command, not an autonomous
+loop). Each remains a distinct, later milestone.
 
 ## Language and dependency policy (decided 2026-07-19)
 

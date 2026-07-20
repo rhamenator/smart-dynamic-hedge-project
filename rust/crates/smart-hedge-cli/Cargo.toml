@@ -16,6 +16,10 @@ smart_hedge_core_bridge = { path = "../smart-hedge-core-bridge" }
 smart_hedge_dashboard = { path = "../smart-hedge-dashboard" }
 smart_hedge_engine = { path = "../smart-hedge-engine" }
 smart_hedge_mcp = { path = "../smart-hedge-mcp" }
+smart_hedge_models = { path = "../smart-hedge-models" }
+smart_hedge_mcp_client = { path = "../smart-hedge-mcp-client" }
+smart_hedge_intelligence_client = { path = "../smart-hedge-intelligence-client" }
+smart_hedge_guard_client = { path = "../smart-hedge-guard-client" }
 
 [lints]
 workspace = true

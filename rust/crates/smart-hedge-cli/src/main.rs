@@ -16,6 +16,9 @@ fn run(raw_args: &[String]) -> Result<i32, CliError> {
         Command::SelfTest { symbol } => commands::cmd_self_test(parsed.config, &symbol),
         Command::Serve { host, port } => commands::cmd_serve(parsed.config, host, port),
         Command::Mcp => commands::cmd_mcp(parsed.config),
+        Command::GuardDemo { symbol, overrides, intelligence_binary, guard_binary } => {
+            commands::cmd_guard_demo(parsed.config, &symbol, overrides, intelligence_binary, guard_binary)
+        }
     }
 }
 

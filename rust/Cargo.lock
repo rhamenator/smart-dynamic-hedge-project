@@ -429,7 +429,11 @@ dependencies = [
  "smart_hedge_core_bridge",
  "smart_hedge_dashboard",
  "smart_hedge_engine",
+ "smart_hedge_guard_client",
+ "smart_hedge_intelligence_client",
  "smart_hedge_mcp",
+ "smart_hedge_mcp_client",
+ "smart_hedge_models",
 ]
 
 [[package]]
@@ -493,6 +497,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "smart_hedge_guard_client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "smart_hedge_mcp_client",
+]
+
+[[package]]
+name = "smart_hedge_intelligence_client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "smart_hedge_mcp_client",
+]
+
+[[package]]
 name = "smart_hedge_mcp"
 version = "0.1.0"
 dependencies = [
@@ -501,6 +521,13 @@ dependencies = [
  "smart_hedge_core_bridge",
  "smart_hedge_engine",
  "smart_hedge_models",
+]
+
+[[package]]
+name = "smart_hedge_mcp_client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

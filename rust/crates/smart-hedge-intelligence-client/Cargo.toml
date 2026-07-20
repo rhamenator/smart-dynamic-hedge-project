@@ -1,0 +1,13 @@
+[package]
+name = "smart_hedge_intelligence_client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+smart_hedge_mcp_client = { path = "../smart-hedge-mcp-client" }
+
+[lints]
+workspace = true

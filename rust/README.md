@@ -32,6 +32,9 @@ working tree.
 | `smart-hedge-mcp` | `python/smart_hedge/mcp_server.py` | fixture-tested — 19 tests covering the JSON-RPC 2.0 envelope, all six tools, and the MCP-specific "tool failure is an `isError` result, not a protocol error" distinction |
 | `smart-hedge-cli` | `python/smart_hedge/cli.py` (`build-core`/`once`/`loop`/`replay`/`recent`/`self-test`/`serve`/`mcp` — every subcommand) | fixture-tested + real subprocess integration tests — 35 tests (26 unit + 9 integration), including spawning the real binary as `serve` and making a real HTTP request against it, and spawning it as `mcp` and driving a real JSON-RPC exchange over its stdio |
 | `smart-hedge-audit` | (no Python equivalent — a new, repo-wide structural check) | 5 tests: a real scan of every `.rs` file in this workspace asserting none names or constructs an order-placement request, plus four self-tests proving the checker actually detects a planted violation rather than being vacuously true |
+| `smart-hedge-mcp-client` | (no Python equivalent — new, for the V2 multi-repository integration) | fixture-tested + real end-to-end — 7 tests. A generic, dependency-free MCP stdio JSON-RPC client (spawn a server binary, one request per line, read one response line), the client-side counterpart to this workspace's own `smart-hedge-mcp` server. Tests spawn this repository's own `smart-hedge` binary as the server under test, so this crate's suite needs no sibling repository built. |
+| `smart-hedge-intelligence-client` | (no Python equivalent) | 1 test — a thin typed wrapper over `smart-hedge-mcp-client` for `market-intelligence-mcp`'s 11 read-only tools (`health`, `list-configured-sources`, `build-evidence-bundle`, etc.). |
+| `smart-hedge-guard-client` | (no Python equivalent) | fixture-tested — 4 tests, including `build_trade_intent`'s `decimal-string` formatting (`common.schema.json`'s exact grammar) verified against several boundary cases. A thin typed wrapper over `smart-hedge-mcp-client` for `trade-guard-mcp`'s `authorize-and-submit-paper-order` and account-snapshot tools. |
 
 **The full CLI surface — including `serve` (a real HTTP dashboard) and
 `mcp` (a real MCP stdio server) — is now a fully working, independently
@@ -39,7 +42,17 @@ runnable Rust program** (`cargo run -p smart_hedge_cli --bin smart-hedge --
 once`), and it is the program a user actually runs: `python/smart_hedge/cli.py`
 has been removed as part of cutover.
 
-**Total: 405 tests, `cargo test --workspace` all green, `cargo clippy
+**`guard-demo` is a new subcommand that exercises the full three-repository
+V2 architecture end to end**: it runs this repository's own deterministic
+recommendation, spawns `market-intelligence-mcp`'s real MCP server to fetch
+a real evidence bundle, builds a typed `TradeIntent` from the
+recommendation's paper-trade preview, and spawns `trade-guard-mcp`'s real
+MCP server to authorize-and-submit it against that repository's real paper
+simulator — three independently-built binaries from three separate
+repositories, talking over real subprocess/stdio boundaries, not fixtures.
+See "Connecting the three repositories" below.
+
+**Total: 419 tests, `cargo test --workspace` all green, `cargo clippy
 --workspace --all-targets` clean under `clippy::all`.**
 
 ### Testing the network providers without live credentials
@@ -284,6 +297,68 @@ port day to day:
 None of the above blocks starting live-data testing — they're exactly the
 things live-data testing exists to check, not gaps this pass could have
 closed with more fake data.
+
+## Connecting the three repositories
+
+`docs/ROADMAP.md` "V2 multi-repository expansion" describes Phase 4 as
+"add typed clients for the two sibling services... and paper guard
+integration" — that gate was waiting on `market-intelligence-mcp` and
+`trade-guard-mcp` each reaching their own vertical slice, which they now
+have. This pass implements the smallest complete version of that phase,
+not the full Phase 4 laundry list (no international schemas, no
+`MODEL_URI` router, no portfolio-level Greeks, no backtester — those
+remain future work).
+
+```bash
+export MARKET_INTELLIGENCE_MCP_BIN=/path/to/market-intelligence-mcp/target/release/market_intelligence_server
+export TRADE_GUARD_MCP_BIN=/path/to/trade-guard-mcp/target/release/trade_guard_server
+./target/release/smart-hedge --config ../config.example.json guard-demo --symbol SPY
+```
+
+(`--intelligence-binary`/`--guard-binary` flags override the env vars,
+matching the `--config`/`SMART_HEDGE_CONFIG` precedent.) `guard-demo`:
+
+1. runs this repository's own `recommendation` pipeline, unchanged;
+2. if the policy's `action` isn't `paper_rebalance_preview` (nothing to
+   propose), stops there — no sibling process is spawned at all;
+3. otherwise spawns `market-intelligence-mcp`'s real MCP server, ingests
+   its one demo fixture record, and builds a real `EvidenceBundle` via
+   its `build-evidence-bundle` tool;
+4. builds a typed `TradeIntent` (`smart_hedge_guard_client::build_trade_intent`)
+   from the recommendation's `paper_trade_preview_shares`;
+5. spawns `trade-guard-mcp`'s real MCP server and calls its
+   `authorize-and-submit-paper-order` tool with the intent and evidence
+   bundle, printing the full result — including a real paper fill when
+   the guard's own policy (buying power, evidence eligibility) allows it.
+
+Verified working end to end against all three repositories' independently
+built release binaries: a real recommendation, a real evidence bundle
+(`bundle-purpose: research`, one record, `quarantine-count: 0`), and a
+real paper fill (`state: filled`, a real synthetic fill price, a real
+position/cash update in `trade-guard-mcp`'s own account ledger) — three
+separate processes from three separate repositories, talking only over
+stdio, with no shared code beyond the wire format both sides hand-
+transcribe from `market-system-contracts`.
+
+An early version of this test caught a real bug in the demo's own
+timestamp handling: reusing the recommendation's `created_at` as the
+`TradeIntent`'s `decision-time` made `check-evidence-eligibility`
+correctly reject the intent (`evidence-bundle-created-after-decision`),
+since the evidence bundle — built moments later — necessarily postdated
+it. Fixed by taking a fresh timestamp right before submission instead of
+backdating to when the underlying recommendation was computed — see the
+comment at that call site in `smart-hedge-cli`'s `commands.rs`.
+
+**What this does and doesn't prove**: this proves the intended
+`TradeIntent -> trade-guard-mcp` data flow works for real, with real
+independently-built binaries, not just fixtures within one process — a
+qualitatively different (and stronger) claim than "each repository's own
+test suite passes in isolation." It does **not** prove anything about
+concurrent/production load (each demo run is one sequential subprocess
+call), about a real (non-fixture) intelligence source, or about anything
+beyond the paper-only path — `trade-guard-mcp` has no live-execution path
+in source at all, so there is nothing further this integration could
+exercise on that axis yet.
 
 ## Building and testing
 

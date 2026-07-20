@@ -308,6 +308,26 @@ infrastructure patterns, but its existing bot/abuse classification tools are not
 an order-authorization policy. See
 [`docs/REQUEST_GUARD_PORT.md`](docs/REQUEST_GUARD_PORT.md).
 
+## Connecting to the sibling repositories (`guard-demo`)
+
+`smart-hedge guard-demo` exercises the full three-repository V2
+architecture end to end: a real recommendation from this repository, a
+real evidence bundle from
+[`market-intelligence-mcp`](https://github.com/rhamenator/market-intelligence-mcp),
+and a real paper-order authorization from
+[`trade-guard-mcp`](https://github.com/rhamenator/trade-guard-mcp) — three
+independently built binaries talking over real subprocess/stdio
+boundaries, not fixtures.
+
+```bash
+export MARKET_INTELLIGENCE_MCP_BIN=/path/to/market-intelligence-mcp/target/release/market_intelligence_server
+export TRADE_GUARD_MCP_BIN=/path/to/trade-guard-mcp/target/release/trade_guard_server
+./rust/target/release/smart-hedge --config config.example.json guard-demo --symbol SPY
+```
+
+See [`rust/README.md`](rust/README.md) "Connecting the three repositories"
+for exactly what this proves, what it doesn't, and the full flow.
+
 ## Direct C++ use
 
 ```bash

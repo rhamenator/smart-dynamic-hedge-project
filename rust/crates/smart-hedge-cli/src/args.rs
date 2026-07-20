@@ -13,6 +13,7 @@ pub enum Command {
     SelfTest { symbol: String },
     Serve { host: Option<String>, port: Option<u16> },
     Mcp,
+    GuardDemo { symbol: String, overrides: ContractOverrideArgs, intelligence_binary: Option<PathBuf>, guard_binary: Option<PathBuf> },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -43,7 +44,7 @@ pub enum ArgsError {
 impl fmt::Display for ArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test)"),
+            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo)"),
             Self::UnknownCommand(c) => write!(f, "unknown command: {c}"),
             Self::UnknownFlag { command, flag } => write!(f, "unknown flag {flag} for command {command}"),
             Self::MissingValueFor(flag) => write!(f, "{flag} requires a value"),
@@ -227,6 +228,27 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
             Command::Serve { host, port }
         }
         "mcp" => Command::Mcp,
+        "guard-demo" => {
+            let mut symbol = "SPY".to_string();
+            let mut overrides = ContractOverrideArgs::default();
+            let mut intelligence_binary: Option<PathBuf> = None;
+            let mut guard_binary: Option<PathBuf> = None;
+            FlagCursor::new(tail).run("guard-demo", |name, value| {
+                match name {
+                    "symbol" => symbol = value.to_string(),
+                    "strike" => overrides.strike = Some(parse_f64("--strike", value)?),
+                    "vol" => overrides.vol = Some(parse_f64("--vol", value)?),
+                    "days" => overrides.days = Some(parse_f64("--days", value)?),
+                    "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
+                    "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
+                    "intelligence-binary" => intelligence_binary = Some(PathBuf::from(value)),
+                    "guard-binary" => guard_binary = Some(PathBuf::from(value)),
+                    _ => return Ok(false),
+                }
+                Ok(true)
+            })?;
+            Command::GuardDemo { symbol: symbol.to_uppercase(), overrides, intelligence_binary, guard_binary }
+        }
         other => return Err(ArgsError::UnknownCommand(other.to_string())),
     };
 
@@ -391,5 +413,40 @@ mod tests {
     fn missing_value_for_a_flag_is_reported() {
         let result = parse_args(&args(&["once", "--strike"]));
         assert_eq!(result, Err(ArgsError::MissingValueFor("--strike".to_string())));
+    }
+
+    #[test]
+    fn guard_demo_defaults_to_spy_with_no_binary_overrides() {
+        let parsed = parse_args(&args(&["guard-demo"])).unwrap();
+        assert_eq!(
+            parsed.command,
+            Command::GuardDemo {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                intelligence_binary: None,
+                guard_binary: None,
+            }
+        );
+    }
+
+    #[test]
+    fn guard_demo_accepts_binary_path_overrides() {
+        let parsed = parse_args(&args(&[
+            "guard-demo",
+            "--intelligence-binary",
+            "market_intelligence_server",
+            "--guard-binary",
+            "trade_guard_server",
+        ]))
+        .unwrap();
+        assert_eq!(
+            parsed.command,
+            Command::GuardDemo {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                intelligence_binary: Some(PathBuf::from("market_intelligence_server")),
+                guard_binary: Some(PathBuf::from("trade_guard_server")),
+            }
+        );
     }
 }
