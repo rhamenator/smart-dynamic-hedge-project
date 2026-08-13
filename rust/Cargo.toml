@@ -26,6 +26,8 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false
+authors = ["Richard M. Hamilton"]
+repository = "https://github.com/rhamenator/smart-dynamic-hedge-project"
 
 [workspace.dependencies]
 # Same policy as market-intelligence-mcp and trade-guard-mcp: minimize
@@ -62,3 +64,7 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = "warn"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
