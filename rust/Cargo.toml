@@ -57,7 +57,7 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 # compiles SQLite from source rather than linking whatever version
 # happens to be on the host, which matters for the multiplatform
 # requirement (no assumption about a system SQLite being present/current).
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
