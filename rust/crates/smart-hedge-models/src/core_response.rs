@@ -98,9 +98,15 @@ mod tests {
 
     #[test]
     fn null_for_a_non_finite_field_fails_to_deserialize() {
-        let json = sample_json().replace("\"target_stock_shares\":45.0", "\"target_stock_shares\":null");
+        let json = sample_json().replace(
+            "\"target_stock_shares\":45.0",
+            "\"target_stock_shares\":null",
+        );
         let result: Result<CoreResponse, _> = serde_json::from_str(&json);
-        assert!(result.is_err(), "a null (non-finite) core value must not silently become 0.0");
+        assert!(
+            result.is_err(),
+            "a null (non-finite) core value must not silently become 0.0"
+        );
     }
 
     #[test]

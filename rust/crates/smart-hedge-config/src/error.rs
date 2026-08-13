@@ -27,7 +27,9 @@ impl fmt::Display for ConfigError {
             Self::InvalidJson(msg) => write!(f, "configuration file is not valid JSON: {msg}"),
             Self::LiveModeNotSupported => write!(f, "only mode='paper' is implemented"),
             Self::PolicyPaperOnlyRequired => write!(f, "policy.paper_only must remain true"),
-            Self::SchemaMismatch(msg) => write!(f, "configuration does not match the expected schema: {msg}"),
+            Self::SchemaMismatch(msg) => {
+                write!(f, "configuration does not match the expected schema: {msg}")
+            }
         }
     }
 }

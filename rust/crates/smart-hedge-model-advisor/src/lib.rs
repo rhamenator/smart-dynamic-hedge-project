@@ -20,4 +20,4 @@ pub use heuristic::HeuristicAdvisor;
 pub use model_uri::{ModelUri, ModelUriError};
 pub use openai::OpenAIAdvisor;
 pub use router::build_advisor_from_uri;
-pub use schema::{assessment_json_schema, validate_assessment_payload, ALLOWED_REGIMES};
+pub use schema::{ALLOWED_REGIMES, assessment_json_schema, validate_assessment_payload};

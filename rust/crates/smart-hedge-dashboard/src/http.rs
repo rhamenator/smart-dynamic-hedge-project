@@ -58,8 +58,15 @@ pub fn read_request(stream: impl Read) -> Result<ParsedRequest, HttpError> {
     total += n;
     let request_line = request_line.trim_end();
     let mut parts = request_line.splitn(3, ' ');
-    let method = parts.next().filter(|s| !s.is_empty()).ok_or(HttpError::MalformedRequestLine)?.to_string();
-    let target = parts.next().filter(|s| !s.is_empty()).ok_or(HttpError::MalformedRequestLine)?;
+    let method = parts
+        .next()
+        .filter(|s| !s.is_empty())
+        .ok_or(HttpError::MalformedRequestLine)?
+        .to_string();
+    let target = parts
+        .next()
+        .filter(|s| !s.is_empty())
+        .ok_or(HttpError::MalformedRequestLine)?;
 
     let (path, query_str) = match target.split_once('?') {
         Some((p, q)) => (p.to_string(), q.to_string()),
@@ -95,7 +102,11 @@ pub fn read_request(stream: impl Read) -> Result<ParsedRequest, HttpError> {
         let _ = reader.read_exact(&mut buf);
     }
 
-    Ok(ParsedRequest { method, path, query })
+    Ok(ParsedRequest {
+        method,
+        path,
+        query,
+    })
 }
 
 fn hex_val(b: u8) -> Option<u8> {
@@ -156,7 +167,13 @@ fn parse_query(raw: &str) -> BTreeMap<String, String> {
 
 /// Writes a complete HTTP/1.1 response: status line, `Content-Type`,
 /// `Content-Length`, `Connection: close`, a blank line, then the body.
-pub fn write_response(mut writer: impl Write, status: u16, reason: &str, content_type: &str, body: &[u8]) -> io::Result<()> {
+pub fn write_response(
+    mut writer: impl Write,
+    status: u16,
+    reason: &str,
+    content_type: &str,
+    body: &[u8],
+) -> io::Result<()> {
     write!(writer, "HTTP/1.1 {status} {reason}\r\n")?;
     write!(writer, "Content-Type: {content_type}\r\n")?;
     write!(writer, "Content-Length: {}\r\n", body.len())?;
@@ -263,7 +280,10 @@ mod tests {
         }
         raw.push_str("\r\n");
         let result = read_request(Cursor::new(raw));
-        assert!(matches!(result, Err(HttpError::TooManyHeaders) | Err(HttpError::HeadersTooLarge)));
+        assert!(matches!(
+            result,
+            Err(HttpError::TooManyHeaders) | Err(HttpError::HeadersTooLarge)
+        ));
     }
 
     #[test]

@@ -18,7 +18,9 @@ pub fn str_field<'a>(value: &'a Value, key: &str) -> Result<&'a str, StoreError>
 pub fn nested_object<'a>(value: &'a Value, key: &str) -> Result<&'a Value, StoreError> {
     match value.get(key) {
         Some(v) if v.is_object() => Ok(v),
-        _ => Err(StoreError::MalformedPayload(format!("missing or non-object field '{key}'"))),
+        _ => Err(StoreError::MalformedPayload(format!(
+            "missing or non-object field '{key}'"
+        ))),
     }
 }
 
@@ -36,25 +38,37 @@ mod tests {
     #[test]
     fn str_field_errors_on_missing_key() {
         let v = json!({});
-        assert!(matches!(str_field(&v, "a"), Err(StoreError::MalformedPayload(_))));
+        assert!(matches!(
+            str_field(&v, "a"),
+            Err(StoreError::MalformedPayload(_))
+        ));
     }
 
     #[test]
     fn str_field_errors_on_wrong_type() {
         let v = json!({"a": 5});
-        assert!(matches!(str_field(&v, "a"), Err(StoreError::MalformedPayload(_))));
+        assert!(matches!(
+            str_field(&v, "a"),
+            Err(StoreError::MalformedPayload(_))
+        ));
     }
 
     #[test]
     fn nested_object_errors_on_missing_key() {
         let v = json!({});
-        assert!(matches!(nested_object(&v, "policy"), Err(StoreError::MalformedPayload(_))));
+        assert!(matches!(
+            nested_object(&v, "policy"),
+            Err(StoreError::MalformedPayload(_))
+        ));
     }
 
     #[test]
     fn nested_object_errors_when_not_an_object() {
         let v = json!({"policy": "not-an-object"});
-        assert!(matches!(nested_object(&v, "policy"), Err(StoreError::MalformedPayload(_))));
+        assert!(matches!(
+            nested_object(&v, "policy"),
+            Err(StoreError::MalformedPayload(_))
+        ));
     }
 
     #[test]

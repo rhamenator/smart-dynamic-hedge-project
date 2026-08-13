@@ -102,7 +102,14 @@ impl Advisor for FlakyAdvisor {
 }
 
 fn find_repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 #[test]
@@ -142,11 +149,22 @@ fn chaos_workout_many_randomized_scenarios_never_panic_and_stay_paper_only() {
     )
     .unwrap();
 
-    let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &root).unwrap();
+    let loaded =
+        smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &root)
+            .unwrap();
     let provider = smart_hedge_data::SyntheticProvider::new(loaded.clone());
-    let advisor = FlakyAdvisor { failure_probability: 0.25, counter: AtomicU64::new(0) };
-    let engine =
-        SmartHedgeEngine::with_components(loaded, root, cpp_source, Box::new(provider), Box::new(advisor)).unwrap();
+    let advisor = FlakyAdvisor {
+        failure_probability: 0.25,
+        counter: AtomicU64::new(0),
+    };
+    let engine = SmartHedgeEngine::with_components(
+        loaded,
+        root,
+        cpp_source,
+        Box::new(provider),
+        Box::new(advisor),
+    )
+    .unwrap();
 
     // Deliberately includes a symbol with no `contracts` entry at all —
     // every iteration that picks it must hit `UnknownSymbol`, never a panic.
@@ -158,28 +176,55 @@ fn chaos_workout_many_randomized_scenarios_never_panic_and_stay_paper_only() {
     for i in 0..ITERATIONS {
         let symbol = *rng.choice(&symbols);
         let overrides = ContractOverrides {
-            strike: rng.bool_with_probability(0.6).then(|| rng.next_f64(0.01, 10_000.0)),
-            implied_volatility: rng.bool_with_probability(0.6).then(|| rng.next_f64(0.001, 5.0)),
-            days_to_expiry: rng.bool_with_probability(0.6).then(|| rng.next_f64(0.0, 3650.0)),
-            current_shares: rng.bool_with_probability(0.5).then(|| rng.next_f64(-100_000.0, 100_000.0)),
-            contracts: rng.bool_with_probability(0.5).then(|| rng.next_i64(0, 10_000)),
+            strike: rng
+                .bool_with_probability(0.6)
+                .then(|| rng.next_f64(0.01, 10_000.0)),
+            implied_volatility: rng
+                .bool_with_probability(0.6)
+                .then(|| rng.next_f64(0.001, 5.0)),
+            days_to_expiry: rng
+                .bool_with_probability(0.6)
+                .then(|| rng.next_f64(0.0, 3650.0)),
+            current_shares: rng
+                .bool_with_probability(0.5)
+                .then(|| rng.next_f64(-100_000.0, 100_000.0)),
+            contracts: rng
+                .bool_with_probability(0.5)
+                .then(|| rng.next_i64(0, 10_000)),
         };
 
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| engine.recommendation(symbol, &overrides)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            engine.recommendation(symbol, &overrides)
+        }));
         let result = match outcome {
             Ok(r) => r,
-            Err(_) => panic!("iteration {i} (symbol={symbol:?}, overrides={overrides:?}) PANICKED instead of returning a Result"),
+            Err(_) => panic!(
+                "iteration {i} (symbol={symbol:?}, overrides={overrides:?}) PANICKED instead of returning a Result"
+            ),
         };
 
         match result {
             Ok(decision) => {
                 ok_count += 1;
                 assert_eq!(decision["mode"], "paper", "iteration {i}");
-                assert_eq!(decision["policy"]["live_execution_allowed"], false, "iteration {i}");
-                assert_eq!(decision["audit"]["broker_order_endpoint_present"], false, "iteration {i}");
-                assert_eq!(decision["audit"]["secrets_sent_to_model"], false, "iteration {i}");
-                let decision_id = decision["decision_id"].as_str().expect("decision_id present");
-                let replayed = engine.replay(decision_id).unwrap_or_else(|e| panic!("iteration {i}: replay failed: {e}"));
+                assert_eq!(
+                    decision["policy"]["live_execution_allowed"], false,
+                    "iteration {i}"
+                );
+                assert_eq!(
+                    decision["audit"]["broker_order_endpoint_present"], false,
+                    "iteration {i}"
+                );
+                assert_eq!(
+                    decision["audit"]["secrets_sent_to_model"], false,
+                    "iteration {i}"
+                );
+                let decision_id = decision["decision_id"]
+                    .as_str()
+                    .expect("decision_id present");
+                let replayed = engine
+                    .replay(decision_id)
+                    .unwrap_or_else(|e| panic!("iteration {i}: replay failed: {e}"));
                 assert_eq!(
                     replayed["audit"]["stored_content_hash_valid"], true,
                     "iteration {i}: tamper check failed on a decision that was never tampered with"
@@ -193,16 +238,28 @@ fn chaos_workout_many_randomized_scenarios_never_panic_and_stay_paper_only() {
                 // "weird input" starts taking an unexpected path, not
                 // just "didn't crash".
                 match e {
-                    EngineError::UnknownSymbol(_) | EngineError::InvalidStrike(_) | EngineError::Core(_) => {}
-                    other => panic!("iteration {i} (symbol={symbol:?}, overrides={overrides:?}): unexpected error variant: {other}"),
+                    EngineError::UnknownSymbol(_)
+                    | EngineError::InvalidStrike(_)
+                    | EngineError::Core(_) => {}
+                    other => panic!(
+                        "iteration {i} (symbol={symbol:?}, overrides={overrides:?}): unexpected error variant: {other}"
+                    ),
                 }
             }
         }
     }
 
-    assert!(ok_count > 0, "expected at least some of {ITERATIONS} iterations to succeed");
-    assert!(expected_err_count > 0, "expected at least the unconfigured-symbol case to produce an error");
-    eprintln!("chaos workout: {ITERATIONS} iterations, {ok_count} succeeded, {expected_err_count} failed with an expected error variant");
+    assert!(
+        ok_count > 0,
+        "expected at least some of {ITERATIONS} iterations to succeed"
+    );
+    assert!(
+        expected_err_count > 0,
+        "expected at least the unconfigured-symbol case to produce an error"
+    );
+    eprintln!(
+        "chaos workout: {ITERATIONS} iterations, {ok_count} succeeded, {expected_err_count} failed with an expected error variant"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

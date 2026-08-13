@@ -1,15 +1,15 @@
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use smart_hedge_config::LoadedConfig;
 use smart_hedge_core_bridge::resolve_binary;
 use smart_hedge_data::MarketDataProvider;
 use smart_hedge_model_advisor::{Advisor, HeuristicAdvisor};
-use smart_hedge_models::{new_unique_id, TimestampUtc};
-use smart_hedge_policy::{evaluate_policy, POLICY_VERSION};
+use smart_hedge_models::{TimestampUtc, new_unique_id};
+use smart_hedge_policy::{POLICY_VERSION, evaluate_policy};
 use smart_hedge_store::DecisionStore;
 
-use crate::contract::{resolve_contract, resolved_strike, ContractOverrides};
+use crate::contract::{ContractOverrides, resolve_contract, resolved_strike};
 use crate::error::EngineError;
 use crate::factory::{build_advisor, build_provider};
 use crate::hashing::{canonical_hash, file_hash};
@@ -27,7 +27,11 @@ pub struct SmartHedgeEngine {
 }
 
 impl SmartHedgeEngine {
-    pub fn new(loaded_config: LoadedConfig, project_root: PathBuf, cpp_source: PathBuf) -> Result<Self, EngineError> {
+    pub fn new(
+        loaded_config: LoadedConfig,
+        project_root: PathBuf,
+        cpp_source: PathBuf,
+    ) -> Result<Self, EngineError> {
         let provider = build_provider(&loaded_config)?;
         let advisor = build_advisor(&loaded_config)?;
         Self::with_components(loaded_config, project_root, cpp_source, provider, advisor)
@@ -45,17 +49,30 @@ impl SmartHedgeEngine {
         provider: Box<dyn MarketDataProvider>,
         advisor: Box<dyn Advisor>,
     ) -> Result<Self, EngineError> {
-        let db_path =
-            smart_hedge_config::resolve_project_path(&loaded_config.config_dir, &loaded_config.config.storage.sqlite_path);
+        let db_path = smart_hedge_config::resolve_project_path(
+            &loaded_config.config_dir,
+            &loaded_config.config.storage.sqlite_path,
+        );
         let store = DecisionStore::new(&db_path)?;
-        Ok(SmartHedgeEngine { loaded_config, project_root, cpp_source, provider, advisor, store })
+        Ok(SmartHedgeEngine {
+            loaded_config,
+            project_root,
+            cpp_source,
+            provider,
+            advisor,
+            store,
+        })
     }
 
     /// Port of `SmartHedgeEngine.recommendation`. `now` is an explicit
     /// parameter (Python reads the clock internally); tests use
     /// `recommendation_at` directly for deterministic expiry-date behavior,
     /// `recommendation` is the convenience wrapper using the real clock.
-    pub fn recommendation(&self, symbol: &str, overrides: &ContractOverrides) -> Result<Value, EngineError> {
+    pub fn recommendation(
+        &self,
+        symbol: &str,
+        overrides: &ContractOverrides,
+    ) -> Result<Value, EngineError> {
         self.recommendation_at(symbol, overrides, TimestampUtc::now())
     }
 
@@ -69,8 +86,15 @@ impl SmartHedgeEngine {
         let snapshot = self.provider.snapshot(&normalized)?;
         let midpoint = snapshot.quote.midpoint();
 
-        let contract = resolve_contract(&self.loaded_config.config, &normalized, overrides, midpoint, now)?;
-        let features = smart_hedge_features::build_features(&snapshot, &self.loaded_config.config.features);
+        let contract = resolve_contract(
+            &self.loaded_config.config,
+            &normalized,
+            overrides,
+            midpoint,
+            now,
+        )?;
+        let features =
+            smart_hedge_features::build_features(&snapshot, &self.loaded_config.config.features);
         let strike = resolved_strike(&contract);
         let core = smart_hedge_core_bridge::run_core(
             &self.loaded_config,
@@ -97,16 +121,29 @@ impl SmartHedgeEngine {
             }
         };
 
-        let policy = evaluate_policy(&self.loaded_config.config, &snapshot, &features, &core, &assessment, now);
+        let policy = evaluate_policy(
+            &self.loaded_config.config,
+            &snapshot,
+            &features,
+            &core,
+            &assessment,
+            now,
+        );
         let decision_id = new_unique_id();
         let created_at = now.to_iso_string();
 
-        let contract_value = serde_json::to_value(&contract).expect("ContractConfig serialization is infallible");
-        let core_value = serde_json::to_value(&core).expect("CoreResponse serialization is infallible");
-        let snapshot_value = serde_json::to_value(&snapshot).expect("MarketSnapshot serialization is infallible");
-        let features_value = serde_json::to_value(&features).expect("FeatureSet serialization is infallible");
-        let assessment_value = serde_json::to_value(&assessment).expect("ModelAssessment serialization is infallible");
-        let policy_value = serde_json::to_value(&policy).expect("PolicyDecision serialization is infallible");
+        let contract_value =
+            serde_json::to_value(&contract).expect("ContractConfig serialization is infallible");
+        let core_value =
+            serde_json::to_value(&core).expect("CoreResponse serialization is infallible");
+        let snapshot_value =
+            serde_json::to_value(&snapshot).expect("MarketSnapshot serialization is infallible");
+        let features_value =
+            serde_json::to_value(&features).expect("FeatureSet serialization is infallible");
+        let assessment_value =
+            serde_json::to_value(&assessment).expect("ModelAssessment serialization is infallible");
+        let policy_value =
+            serde_json::to_value(&policy).expect("PolicyDecision serialization is infallible");
 
         let core_binary = resolve_binary(&self.loaded_config, &self.project_root);
         let input_hash = canonical_hash(&json!({
@@ -151,12 +188,16 @@ impl SmartHedgeEngine {
 
     /// Port of `SmartHedgeEngine.replay`. Verifies: SDH-LLR-135.
     pub fn replay(&self, decision_id: &str) -> Result<Value, EngineError> {
-        let mut payload =
-            self.store.get(decision_id)?.ok_or_else(|| EngineError::DecisionNotFound(decision_id.to_string()))?;
+        let mut payload = self
+            .store
+            .get(decision_id)?
+            .ok_or_else(|| EngineError::DecisionNotFound(decision_id.to_string()))?;
         let root = payload
             .as_object_mut()
             .expect("stored decision payload root is always an object");
-        let audit = root.entry("audit").or_insert_with(|| Value::Object(serde_json::Map::new()));
+        let audit = root
+            .entry("audit")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
         if let Value::Object(audit_map) = audit {
             audit_map.insert(
                 "replay_mode".to_string(),

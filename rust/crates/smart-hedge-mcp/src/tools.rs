@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use smart_hedge_config::{ContractConfig, StrikeSpec};
 use smart_hedge_engine::{ContractOverrides, SmartHedgeEngine};
 
@@ -22,7 +22,10 @@ pub fn health(engine: &SmartHedgeEngine) -> Result<String, String> {
 }
 
 /// Port of the `get_market_recommendation` MCP tool.
-pub fn get_market_recommendation(engine: &SmartHedgeEngine, symbol: &str) -> Result<String, String> {
+pub fn get_market_recommendation(
+    engine: &SmartHedgeEngine,
+    symbol: &str,
+) -> Result<String, String> {
     match engine.recommendation(symbol, &ContractOverrides::default()) {
         Ok(value) => Ok(render(&value)),
         Err(e) => tool_error(e),
@@ -73,11 +76,21 @@ impl Default for PriceOptionArgs {
 /// "configured-or-schema-defaulted" fallback is a reasonable, documented,
 /// directly-testable choice for the same observable contract (a raw
 /// pricing utility that works for any symbol, not just configured ones).
-fn build_contract(loaded: &smart_hedge_config::LoadedConfig, args: &PriceOptionArgs) -> ContractConfig {
-    let mut base = loaded.config.contracts.get(&args.symbol).cloned().unwrap_or_else(|| {
-        serde_json::from_value(json!({"strike": args.strike, "implied_volatility": args.implied_volatility}))
+fn build_contract(
+    loaded: &smart_hedge_config::LoadedConfig,
+    args: &PriceOptionArgs,
+) -> ContractConfig {
+    let mut base = loaded
+        .config
+        .contracts
+        .get(&args.symbol)
+        .cloned()
+        .unwrap_or_else(|| {
+            serde_json::from_value(
+                json!({"strike": args.strike, "implied_volatility": args.implied_volatility}),
+            )
             .expect("ContractConfig defaults every field except strike/implied_volatility")
-    });
+        });
     base.strike = StrikeSpec::Fixed(args.strike);
     base.implied_volatility = args.implied_volatility;
     base.days_to_expiry = args.days_to_expiry;
@@ -95,8 +108,17 @@ fn build_contract(loaded: &smart_hedge_config::LoadedConfig, args: &PriceOptionA
 pub fn price_option(engine: &SmartHedgeEngine, args: &PriceOptionArgs) -> Result<String, String> {
     let loaded = engine.loaded_config();
     let contract = build_contract(loaded, args);
-    match smart_hedge_core_bridge::run_core(loaded, engine.project_root(), engine.cpp_source(), &contract, args.spot, args.strike) {
-        Ok(response) => Ok(render(&serde_json::to_value(response).expect("CoreResponse serialization is infallible"))),
+    match smart_hedge_core_bridge::run_core(
+        loaded,
+        engine.project_root(),
+        engine.cpp_source(),
+        &contract,
+        args.spot,
+        args.strike,
+    ) {
+        Ok(response) => Ok(render(
+            &serde_json::to_value(response).expect("CoreResponse serialization is infallible"),
+        )),
         Err(e) => tool_error(e),
     }
 }
@@ -110,8 +132,16 @@ pub fn replay_decision(engine: &SmartHedgeEngine, decision_id: &str) -> Result<S
 }
 
 /// Port of the `list_recent_decisions` MCP tool.
-pub fn list_recent_decisions(engine: &SmartHedgeEngine, limit: i64, symbol: &str) -> Result<String, String> {
-    let symbol_filter = if symbol.is_empty() { None } else { Some(symbol) };
+pub fn list_recent_decisions(
+    engine: &SmartHedgeEngine,
+    limit: i64,
+    symbol: &str,
+) -> Result<String, String> {
+    let symbol_filter = if symbol.is_empty() {
+        None
+    } else {
+        Some(symbol)
+    };
     match engine.recent(limit, symbol_filter) {
         Ok(values) => Ok(render(&Value::Array(values))),
         Err(e) => tool_error(e),
@@ -121,7 +151,8 @@ pub fn list_recent_decisions(engine: &SmartHedgeEngine, limit: i64, symbol: &str
 /// Port of the `get_policy_snapshot` MCP tool.
 pub fn get_policy_snapshot(engine: &SmartHedgeEngine) -> Result<String, String> {
     let loaded = engine.loaded_config();
-    let policy = serde_json::to_value(&loaded.config.policy).expect("PolicyConfig serialization is infallible");
+    let policy = serde_json::to_value(&loaded.config.policy)
+        .expect("PolicyConfig serialization is infallible");
     Ok(render(&json!({
         "mode": loaded.config.mode,
         "policy": policy,
@@ -138,11 +169,15 @@ mod tests {
     fn loaded_config_with_contracts(contracts_json: &str) -> smart_hedge_config::LoadedConfig {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-mcp-tools-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-mcp-tools-test-{}-{n}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, format!(r#"{{"contracts": {contracts_json}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         loaded
     }
@@ -152,7 +187,11 @@ mod tests {
         let loaded = loaded_config_with_contracts(
             r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2, "multiplier": 50.0}}"#,
         );
-        let args = PriceOptionArgs { symbol: "SPY".to_string(), strike: 150.0, ..Default::default() };
+        let args = PriceOptionArgs {
+            symbol: "SPY".to_string(),
+            strike: 150.0,
+            ..Default::default()
+        };
         let contract = build_contract(&loaded, &args);
         assert_eq!(contract.multiplier, 50.0); // preserved from the configured base
         assert_eq!(contract.strike, StrikeSpec::Fixed(150.0)); // overridden by the tool argument
@@ -160,8 +199,15 @@ mod tests {
 
     #[test]
     fn build_contract_defaults_reasonably_for_an_unconfigured_symbol() {
-        let loaded = loaded_config_with_contracts(r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2}}"#);
-        let args = PriceOptionArgs { symbol: "ZZZZ".to_string(), strike: 42.0, contracts: 3, ..Default::default() };
+        let loaded = loaded_config_with_contracts(
+            r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2}}"#,
+        );
+        let args = PriceOptionArgs {
+            symbol: "ZZZZ".to_string(),
+            strike: 42.0,
+            contracts: 3,
+            ..Default::default()
+        };
         let contract = build_contract(&loaded, &args);
         assert_eq!(contract.strike, StrikeSpec::Fixed(42.0));
         assert_eq!(contract.contracts, 3);
@@ -170,8 +216,14 @@ mod tests {
 
     #[test]
     fn build_contract_never_leaves_an_atm_strike_or_an_expiry_date() {
-        let loaded = loaded_config_with_contracts(r#"{"SPY": {"strike": "ATM", "implied_volatility": 0.2, "expiry": "2026-12-19"}}"#);
-        let args = PriceOptionArgs { symbol: "SPY".to_string(), strike: 88.0, ..Default::default() };
+        let loaded = loaded_config_with_contracts(
+            r#"{"SPY": {"strike": "ATM", "implied_volatility": 0.2, "expiry": "2026-12-19"}}"#,
+        );
+        let args = PriceOptionArgs {
+            symbol: "SPY".to_string(),
+            strike: 88.0,
+            ..Default::default()
+        };
         let contract = build_contract(&loaded, &args);
         assert_eq!(contract.strike, StrikeSpec::Fixed(88.0));
         assert!(contract.expiry.is_none());
@@ -181,7 +233,8 @@ mod tests {
     fn get_policy_snapshot_never_claims_live_execution_or_an_order_endpoint() {
         let loaded = loaded_config_with_contracts("{}");
         let root = std::env::temp_dir();
-        let engine = SmartHedgeEngine::new(loaded, root.clone(), root.join("nonexistent.cpp")).unwrap();
+        let engine =
+            SmartHedgeEngine::new(loaded, root.clone(), root.join("nonexistent.cpp")).unwrap();
         let text = get_policy_snapshot(&engine).unwrap();
         let value: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(value["broker_order_endpoint_present"], false);
@@ -193,7 +246,8 @@ mod tests {
     fn list_recent_decisions_with_empty_symbol_string_means_no_filter() {
         let loaded = loaded_config_with_contracts("{}");
         let root = std::env::temp_dir();
-        let engine = SmartHedgeEngine::new(loaded, root.clone(), root.join("nonexistent.cpp")).unwrap();
+        let engine =
+            SmartHedgeEngine::new(loaded, root.clone(), root.join("nonexistent.cpp")).unwrap();
         let text = list_recent_decisions(&engine, 10, "").unwrap();
         let value: Value = serde_json::from_str(&text).unwrap();
         assert!(value.is_array());

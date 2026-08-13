@@ -7,5 +7,5 @@ pub mod rounding;
 #[cfg(test)]
 mod parity_tests;
 
-pub use evaluate::{evaluate_policy, POLICY_VERSION};
+pub use evaluate::{POLICY_VERSION, evaluate_policy};
 pub use rounding::round_half_to_even;

@@ -64,7 +64,11 @@ mod tests {
 
     #[test]
     fn absolute_path_is_returned_unchanged() {
-        let abs = if cfg!(windows) { r"C:\abs\path" } else { "/abs/path" };
+        let abs = if cfg!(windows) {
+            r"C:\abs\path"
+        } else {
+            "/abs/path"
+        };
         let result = resolve_project_path(Path::new("/config/dir"), abs);
         assert_eq!(result, PathBuf::from(abs));
     }

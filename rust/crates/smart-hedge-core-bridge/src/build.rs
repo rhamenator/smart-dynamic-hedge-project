@@ -15,7 +15,11 @@ const COMPILE_TIMEOUT: Duration = Duration::from_secs(180);
 /// Port of `smart_hedge.core_bridge.build_core`. Prefers CMake; falls back
 /// to a direct `g++`/`clang++` invocation exactly like Python does, and
 /// checks the same Windows multi-config-generator fallback path.
-pub fn build_core(loaded: &LoadedConfig, project_root: &Path, cpp_source: &Path) -> Result<std::path::PathBuf, CoreError> {
+pub fn build_core(
+    loaded: &LoadedConfig,
+    project_root: &Path,
+    cpp_source: &Path,
+) -> Result<std::path::PathBuf, CoreError> {
     let build_dir = project_root.join("build");
     std::fs::create_dir_all(&build_dir)?;
 
@@ -39,7 +43,9 @@ pub fn build_core(loaded: &LoadedConfig, project_root: &Path, cpp_source: &Path)
             COMPILE_TIMEOUT,
         )?;
     } else {
-        let compiler = which("g++").or_else(|| which("clang++")).ok_or(CoreError::NoToolchainFound)?;
+        let compiler = which("g++")
+            .or_else(|| which("clang++"))
+            .ok_or(CoreError::NoToolchainFound)?;
         let output_path = default_binary_path(project_root);
         run_command_with_timeout(
             Command::new(&compiler)
@@ -90,11 +96,19 @@ mod tests {
     fn loaded_config_with_auto_build(auto_build: bool) -> (LoadedConfig, std::path::PathBuf) {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-core-bridge-ensure-core-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-core-bridge-ensure-core-test-{}-{n}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
-        std::fs::write(&path, format!(r#"{{"core": {{"auto_build": {auto_build}}}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        std::fs::write(
+            &path,
+            format!(r#"{{"core": {{"auto_build": {auto_build}}}}}"#),
+        )
+        .unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         (loaded, dir)
     }
 
@@ -112,7 +126,10 @@ mod tests {
         let missing_cpp_source = dir.join("does-not-exist.cpp");
 
         let result = ensure_core(&loaded, &dir, &missing_cpp_source);
-        assert!(matches!(result, Err(CoreError::BinaryNotFound(_))), "expected BinaryNotFound, got {result:?}");
+        assert!(
+            matches!(result, Err(CoreError::BinaryNotFound(_))),
+            "expected BinaryNotFound, got {result:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

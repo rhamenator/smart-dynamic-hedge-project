@@ -49,7 +49,11 @@ fn error_evidence(series_id: &str, reason: &str) -> EvidenceItem {
 /// `"."`, not a missing/null field — replicated exactly.
 fn observation_evidence(series_id: &str, payload: &Value) -> EvidenceItem {
     let empty = Value::Null;
-    let observation = payload.get("observations").and_then(Value::as_array).and_then(|arr| arr.first()).unwrap_or(&empty);
+    let observation = payload
+        .get("observations")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .unwrap_or(&empty);
     let date = observation.get("date").and_then(Value::as_str);
     let raw_value = observation.get("value");
     let numeric = match raw_value {
@@ -61,7 +65,9 @@ fn observation_evidence(series_id: &str, payload: &Value) -> EvidenceItem {
         evidence_id: format!("fred-{series_id}-{}", date.unwrap_or("latest")),
         kind: "macro".to_string(),
         title: format!("FRED {series_id}"),
-        timestamp: date.map(str::to_string).unwrap_or_else(|| TimestampUtc::now().to_iso_string()),
+        timestamp: date
+            .map(str::to_string)
+            .unwrap_or_else(|| TimestampUtc::now().to_iso_string()),
         source: "FRED".to_string(),
         value: numeric.map(Value::from).unwrap_or(Value::Null),
         text: String::new(),
@@ -70,7 +76,12 @@ fn observation_evidence(series_id: &str, payload: &Value) -> EvidenceItem {
     }
 }
 
-fn fetch_observations(base_url: &str, series_id: &str, api_key: &str, timeout: Duration) -> Result<Value, String> {
+fn fetch_observations(
+    base_url: &str,
+    series_id: &str,
+    api_key: &str,
+    timeout: Duration,
+) -> Result<Value, String> {
     let response = ureq::get(base_url)
         .set("User-Agent", USER_AGENT)
         .query("series_id", series_id)
@@ -100,7 +111,11 @@ pub fn load_fred_evidence(loaded: &LoadedConfig, api_key: Option<&str>) -> Vec<E
 /// so tests can point it at a local mock server for a real end-to-end
 /// HTTP round trip — see `FRED_BASE_URL`'s doc comment. `load_fred_evidence`
 /// is the only production entry point and always passes the real URL.
-fn load_fred_evidence_with_base(loaded: &LoadedConfig, api_key: Option<&str>, base_url: &str) -> Vec<EvidenceItem> {
+fn load_fred_evidence_with_base(
+    loaded: &LoadedConfig,
+    api_key: Option<&str>,
+    base_url: &str,
+) -> Vec<EvidenceItem> {
     let fred = &loaded.config.provider.fred;
     if !fred.enabled {
         return vec![];
@@ -112,10 +127,12 @@ fn load_fred_evidence_with_base(loaded: &LoadedConfig, api_key: Option<&str>, ba
 
     capped_series(&fred.series)
         .iter()
-        .map(|series_id| match fetch_observations(base_url, series_id, api_key, timeout) {
-            Ok(payload) => observation_evidence(series_id, &payload),
-            Err(reason) => error_evidence(series_id, &reason),
-        })
+        .map(
+            |series_id| match fetch_observations(base_url, series_id, api_key, timeout) {
+                Ok(payload) => observation_evidence(series_id, &payload),
+                Err(reason) => error_evidence(series_id, &reason),
+            },
+        )
         .collect()
 }
 
@@ -139,11 +156,15 @@ mod tests {
     fn config_with_fred(fred_json: &str) -> LoadedConfig {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-fred-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-fred-test-{}-{n}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, format!(r#"{{"provider": {{"fred": {fred_json}}}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         loaded
     }
@@ -227,7 +248,11 @@ mod tests {
     fn load_fred_evidence_with_base_makes_a_real_http_round_trip() {
         let port = crate::mock_http_test_support::start(vec![(
             "/fred/series/observations",
-            (200, "application/json", r#"{"observations": [{"date": "2026-07-18", "value": "18.5"}]}"#.to_string()),
+            (
+                200,
+                "application/json",
+                r#"{"observations": [{"date": "2026-07-18", "value": "18.5"}]}"#.to_string(),
+            ),
         )]);
         let base_url = format!("http://127.0.0.1:{port}/fred/series/observations");
 
@@ -267,15 +292,36 @@ mod tests {
     #[test]
     fn load_fred_evidence_survives_a_battery_of_adversarial_responses() {
         let bodies: Vec<(&str, String)> = vec![
-            ("value_as_a_bare_json_number", r#"{"observations": [{"date": "2026-07-18", "value": 18.5}]}"#.to_string()),
-            ("value_is_the_dot_placeholder", r#"{"observations": [{"date": "2026-07-18", "value": "."}]}"#.to_string()),
-            ("value_is_null", r#"{"observations": [{"date": "2026-07-18", "value": null}]}"#.to_string()),
-            ("date_field_missing", r#"{"observations": [{"value": "18.5"}]}"#.to_string()),
-            ("observations_is_empty", r#"{"observations": []}"#.to_string()),
+            (
+                "value_as_a_bare_json_number",
+                r#"{"observations": [{"date": "2026-07-18", "value": 18.5}]}"#.to_string(),
+            ),
+            (
+                "value_is_the_dot_placeholder",
+                r#"{"observations": [{"date": "2026-07-18", "value": "."}]}"#.to_string(),
+            ),
+            (
+                "value_is_null",
+                r#"{"observations": [{"date": "2026-07-18", "value": null}]}"#.to_string(),
+            ),
+            (
+                "date_field_missing",
+                r#"{"observations": [{"value": "18.5"}]}"#.to_string(),
+            ),
+            (
+                "observations_is_empty",
+                r#"{"observations": []}"#.to_string(),
+            ),
             ("observations_field_missing", r#"{}"#.to_string()),
             ("top_level_is_a_json_array", r#"[1, 2, 3]"#.to_string()),
-            ("value_overflows_to_infinity", r#"{"observations": [{"date": "2026-07-18", "value": "1e400"}]}"#.to_string()),
-            ("value_is_negative", r#"{"observations": [{"date": "2026-07-18", "value": "-999.25"}]}"#.to_string()),
+            (
+                "value_overflows_to_infinity",
+                r#"{"observations": [{"date": "2026-07-18", "value": "1e400"}]}"#.to_string(),
+            ),
+            (
+                "value_is_negative",
+                r#"{"observations": [{"date": "2026-07-18", "value": "-999.25"}]}"#.to_string(),
+            ),
             ("non_json_garbage_body", "<html>not json</html>".to_string()),
             ("empty_body", String::new()),
             (
@@ -283,7 +329,10 @@ mod tests {
                 format!(
                     r#"{{"observations": [{}]}}"#,
                     (0..500)
-                        .map(|i| format!(r#"{{"date": "2026-07-{:02}", "value": "{i}.0"}}"#, 1 + (i % 28)))
+                        .map(|i| format!(
+                            r#"{{"date": "2026-07-{:02}", "value": "{i}.0"}}"#,
+                            1 + (i % 28)
+                        ))
                         .collect::<Vec<_>>()
                         .join(",")
                 ),
@@ -291,7 +340,10 @@ mod tests {
         ];
 
         for (name, body) in bodies {
-            let port = crate::mock_http_test_support::start(vec![("/fred/series/observations", (200, "application/json", body))]);
+            let port = crate::mock_http_test_support::start(vec![(
+                "/fred/series/observations",
+                (200, "application/json", body),
+            )]);
             let base_url = format!("http://127.0.0.1:{port}/fred/series/observations");
             let loaded = config_with_fred(r#"{"enabled": true, "series": ["VIXCLS"]}"#);
 
@@ -302,7 +354,11 @@ mod tests {
                 Ok(e) => e,
                 Err(_) => panic!("case {name:?} PANICKED"),
             };
-            assert_eq!(evidence.len(), 1, "case {name:?}: expected exactly one evidence item, got {evidence:?}");
+            assert_eq!(
+                evidence.len(),
+                1,
+                "case {name:?}: expected exactly one evidence item, got {evidence:?}"
+            );
         }
     }
 }

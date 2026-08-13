@@ -18,7 +18,14 @@ use crate::engine::SmartHedgeEngine;
 use crate::error::EngineError;
 
 fn find_repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 /// A stub adviser that always fails, to exercise the fallback path
@@ -64,8 +71,11 @@ fn engine_or_skip(fallback_to_heuristic: bool) -> Option<(SmartHedgeEngine, Path
     // race on the same sqlite file.
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir()
-        .join(format!("smart-hedge-engine-itest-{}-{}-{n}", std::process::id(), fallback_to_heuristic));
+    let dir = std::env::temp_dir().join(format!(
+        "smart-hedge-engine-itest-{}-{}-{n}",
+        std::process::id(),
+        fallback_to_heuristic
+    ));
     std::fs::create_dir_all(&dir).ok();
     let config_path = dir.join("config.json");
     let sqlite_path = dir.join("decisions.sqlite3");
@@ -78,8 +88,11 @@ fn engine_or_skip(fallback_to_heuristic: bool) -> Option<(SmartHedgeEngine, Path
     )
     .unwrap();
 
-    let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &root).unwrap();
-    let engine = SmartHedgeEngine::new(loaded, root, cpp_source).expect("engine construction should succeed");
+    let loaded =
+        smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &root)
+            .unwrap();
+    let engine = SmartHedgeEngine::new(loaded, root, cpp_source)
+        .expect("engine construction should succeed");
     Some((engine, dir))
 }
 
@@ -92,14 +105,18 @@ fn cleanup(dir: &Path) {
 /// real provider/adviser names in use.
 #[test]
 fn recommendation_and_health_report_the_synthetic_heuristic_path() {
-    let Some((engine, dir)) = engine_or_skip(true) else { return };
+    let Some((engine, dir)) = engine_or_skip(true) else {
+        return;
+    };
 
     let health = engine.health();
     assert_eq!(health["provider"], "SyntheticProvider");
     assert_eq!(health["advisor"], "HeuristicAdvisor");
     assert_eq!(health["broker_order_endpoint_present"], false);
 
-    let decision = engine.recommendation("SPY", &ContractOverrides::default()).expect("recommendation should succeed");
+    let decision = engine
+        .recommendation("SPY", &ContractOverrides::default())
+        .expect("recommendation should succeed");
     assert!(decision["decision_id"].is_string());
     assert_eq!(decision["symbol"], "SPY");
     assert_eq!(decision["audit"]["fallback_used"], false);
@@ -114,14 +131,23 @@ fn recommendation_and_health_report_the_synthetic_heuristic_path() {
 /// replay rather than re-run against the network/core.
 #[test]
 fn replay_returns_the_stored_decision_tagged_as_a_replay() {
-    let Some((engine, dir)) = engine_or_skip(true) else { return };
+    let Some((engine, dir)) = engine_or_skip(true) else {
+        return;
+    };
 
-    let decision = engine.recommendation("SPY", &ContractOverrides::default()).unwrap();
+    let decision = engine
+        .recommendation("SPY", &ContractOverrides::default())
+        .unwrap();
     let decision_id = decision["decision_id"].as_str().unwrap();
 
-    let replayed = engine.replay(decision_id).expect("replay should find the stored decision");
+    let replayed = engine
+        .replay(decision_id)
+        .expect("replay should find the stored decision");
     assert_eq!(replayed["decision_id"], decision["decision_id"]);
-    assert_eq!(replayed["audit"]["replay_mode"], "stored_inputs_and_outputs_no_network");
+    assert_eq!(
+        replayed["audit"]["replay_mode"],
+        "stored_inputs_and_outputs_no_network"
+    );
 
     let missing = engine.replay("does-not-exist");
     assert!(matches!(missing, Err(EngineError::DecisionNotFound(_))));
@@ -132,9 +158,13 @@ fn replay_returns_the_stored_decision_tagged_as_a_replay() {
 /// `recent` returns decisions most-recent-first and honors the symbol filter.
 #[test]
 fn recent_returns_stored_decisions_filtered_by_symbol() {
-    let Some((engine, dir)) = engine_or_skip(true) else { return };
+    let Some((engine, dir)) = engine_or_skip(true) else {
+        return;
+    };
 
-    engine.recommendation("SPY", &ContractOverrides::default()).unwrap();
+    engine
+        .recommendation("SPY", &ContractOverrides::default())
+        .unwrap();
     let recent = engine.recent(10, Some("SPY")).unwrap();
     assert!(!recent.is_empty());
     assert!(recent.iter().all(|d| d["symbol"] == "SPY"));
@@ -150,7 +180,9 @@ fn recent_returns_stored_decisions_filtered_by_symbol() {
 /// `HeuristicAdvisor` transparently and records why.
 #[test]
 fn adviser_failure_falls_back_to_heuristic_when_enabled() {
-    let Some((engine_template, dir)) = engine_or_skip(true) else { return };
+    let Some((engine_template, dir)) = engine_or_skip(true) else {
+        return;
+    };
     let root = find_repo_root();
     let cpp_source = root.join("cpp").join("smart_dynamic_hedge.cpp");
     let loaded = smart_hedge_config::load_config(
@@ -171,11 +203,23 @@ fn adviser_failure_falls_back_to_heuristic_when_enabled() {
     )
     .unwrap();
 
-    let decision = engine.recommendation("SPY", &ContractOverrides::default()).expect("fallback should succeed");
+    let decision = engine
+        .recommendation("SPY", &ContractOverrides::default())
+        .expect("fallback should succeed");
     assert_eq!(decision["audit"]["fallback_used"], true);
-    assert!(!decision["audit"]["fallback_reason"].as_str().unwrap().is_empty());
+    assert!(
+        !decision["audit"]["fallback_reason"]
+            .as_str()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(decision["model_assessment"]["advisor_kind"], "heuristic");
-    assert!(!decision["model_assessment"]["fallback_reason"].as_str().unwrap().is_empty());
+    assert!(
+        !decision["model_assessment"]["fallback_reason"]
+            .as_str()
+            .unwrap()
+            .is_empty()
+    );
 
     cleanup(&dir);
 }
@@ -184,7 +228,9 @@ fn adviser_failure_falls_back_to_heuristic_when_enabled() {
 /// failure propagates instead of silently falling back.
 #[test]
 fn adviser_failure_propagates_when_fallback_disabled() {
-    let Some((engine_template, dir)) = engine_or_skip(false) else { return };
+    let Some((engine_template, dir)) = engine_or_skip(false) else {
+        return;
+    };
     let root = find_repo_root();
     let cpp_source = root.join("cpp").join("smart_dynamic_hedge.cpp");
     let loaded = smart_hedge_config::load_config(
@@ -206,7 +252,10 @@ fn adviser_failure_propagates_when_fallback_disabled() {
     .unwrap();
 
     let result = engine.recommendation("SPY", &ContractOverrides::default());
-    assert!(matches!(result, Err(EngineError::AdvisorFailedAndFallbackDisabled(_))));
+    assert!(matches!(
+        result,
+        Err(EngineError::AdvisorFailedAndFallbackDisabled(_))
+    ));
 
     cleanup(&dir);
 }
@@ -215,7 +264,9 @@ fn adviser_failure_propagates_when_fallback_disabled() {
 /// ever reaching the core or adviser.
 #[test]
 fn unknown_symbol_is_rejected_before_calling_the_core() {
-    let Some((engine, dir)) = engine_or_skip(true) else { return };
+    let Some((engine, dir)) = engine_or_skip(true) else {
+        return;
+    };
     let result = engine.recommendation("NOPE", &ContractOverrides::default());
     assert!(matches!(result, Err(EngineError::UnknownSymbol(_))));
     cleanup(&dir);

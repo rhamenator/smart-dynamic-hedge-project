@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use serde_json::Value;
-use smart_hedge_config::{resolve_project_path, LoadedConfig};
+use smart_hedge_config::{LoadedConfig, resolve_project_path};
 use smart_hedge_models::{EvidenceItem, TimestampUtc};
 
 /// A JSON value coerced to a display string the way Python's `str(x)`
@@ -22,14 +22,20 @@ fn stringify(value: &Value) -> String {
 /// `row.get(key, default)` semantics: the default applies only when the
 /// key is absent, not when it's present-but-falsy.
 fn get_or_default(row: &serde_json::Map<String, Value>, key: &str, default: &str) -> String {
-    row.get(key).map(stringify).unwrap_or_else(|| default.to_string())
+    row.get(key)
+        .map(stringify)
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// `row.get(key) or fallback()` semantics: the fallback applies when the
 /// key is absent *or* present with a falsy value (missing, `null`, or an
 /// empty string) — matching Python's truthiness-based `or`, not just
 /// presence.
-fn get_or_falsy_fallback(row: &serde_json::Map<String, Value>, key: &str, fallback: impl FnOnce() -> String) -> String {
+fn get_or_falsy_fallback(
+    row: &serde_json::Map<String, Value>,
+    key: &str,
+    fallback: impl FnOnce() -> String,
+) -> String {
     match row.get(key) {
         Some(Value::String(s)) if !s.is_empty() => s.clone(),
         Some(v) if !matches!(v, Value::Null) && !matches!(v, Value::String(_)) => stringify(v),
@@ -56,7 +62,9 @@ fn row_applies_to_symbol(row: &serde_json::Map<String, Value>, symbol: &str) -> 
     }
     let symbol_upper = symbol.to_uppercase();
     let has_wildcard = applies.iter().any(|v| v.as_str() == Some("*"));
-    let has_symbol = applies.iter().any(|v| stringify(v).to_uppercase() == symbol_upper);
+    let has_symbol = applies
+        .iter()
+        .any(|v| stringify(v).to_uppercase() == symbol_upper);
     has_wildcard || has_symbol
 }
 
@@ -98,7 +106,8 @@ pub fn load_evidence_file(loaded: &LoadedConfig, symbol: &str) -> Vec<EvidenceIt
             continue;
         }
         let evidence_id = get_or_falsy_fallback(row, "evidence_id", || format!("file-{index}"));
-        let timestamp = get_or_falsy_fallback(row, "timestamp", || TimestampUtc::now().to_iso_string());
+        let timestamp =
+            get_or_falsy_fallback(row, "timestamp", || TimestampUtc::now().to_iso_string());
         let quality = row
             .get("quality")
             .and_then(Value::as_f64)
@@ -115,7 +124,10 @@ pub fn load_evidence_file(loaded: &LoadedConfig, symbol: &str) -> Vec<EvidenceIt
             kind: get_or_default(row, "kind", "external"),
             title: truncate_chars(&get_or_default(row, "title", "Untitled evidence"), 240),
             timestamp,
-            source: truncate_chars(&get_or_default(row, "source", &format!("file:{file_name}")), 120),
+            source: truncate_chars(
+                &get_or_default(row, "source", &format!("file:{file_name}")),
+                120,
+            ),
             value: row.get("value").cloned().unwrap_or(Value::Null),
             text: truncate_chars(&get_or_default(row, "text", ""), 5000),
             quality,
@@ -126,7 +138,9 @@ pub fn load_evidence_file(loaded: &LoadedConfig, symbol: &str) -> Vec<EvidenceIt
 }
 
 fn path_file_name(path: &Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -150,19 +164,22 @@ mod tests {
         );
         let config_path = config_dir.join("config.json");
         std::fs::write(&config_path, config_json).unwrap();
-        smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), config_dir).unwrap()
+        smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), config_dir)
+            .unwrap()
     }
 
     fn temp_dir(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("smart-hedge-data-test-{name}-{}", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "smart-hedge-data-test-{name}-{}",
+            std::process::id()
+        ))
     }
 
     #[test]
     fn unconfigured_evidence_file_returns_empty() {
         let dir = temp_dir("unconfigured");
         std::fs::create_dir_all(&dir).unwrap();
-        let loaded =
-            smart_hedge_config::load_config(None, &EnvOverrides::default(), &dir).unwrap();
+        let loaded = smart_hedge_config::load_config(None, &EnvOverrides::default(), &dir).unwrap();
         assert!(load_evidence_file(&loaded, "SPY").is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -211,7 +228,10 @@ mod tests {
     #[test]
     fn non_matching_symbols_list_excludes_the_item() {
         let dir = temp_dir("nonmatching");
-        let path = write_evidence_file(&dir, r#"{"evidence": [{"symbols": ["AAPL"], "title": "x"}]}"#);
+        let path = write_evidence_file(
+            &dir,
+            r#"{"evidence": [{"symbols": ["AAPL"], "title": "x"}]}"#,
+        );
         let loaded = loaded_config_with_evidence_file(&path);
         assert!(load_evidence_file(&loaded, "SPY").is_empty());
         assert_eq!(load_evidence_file(&loaded, "AAPL").len(), 1);
@@ -230,7 +250,10 @@ mod tests {
     #[test]
     fn symbol_match_is_case_insensitive() {
         let dir = temp_dir("caseinsensitive");
-        let path = write_evidence_file(&dir, r#"{"evidence": [{"symbols": ["spy"], "title": "x"}]}"#);
+        let path = write_evidence_file(
+            &dir,
+            r#"{"evidence": [{"symbols": ["spy"], "title": "x"}]}"#,
+        );
         let loaded = loaded_config_with_evidence_file(&path);
         assert_eq!(load_evidence_file(&loaded, "SPY").len(), 1);
         std::fs::remove_dir_all(&dir).ok();
@@ -269,7 +292,10 @@ mod tests {
     #[test]
     fn explicit_untrusted_text_false_is_honored() {
         let dir = temp_dir("untrustedfalse");
-        let path = write_evidence_file(&dir, r#"{"evidence": [{"title": "x", "untrusted_text": false}]}"#);
+        let path = write_evidence_file(
+            &dir,
+            r#"{"evidence": [{"title": "x", "untrusted_text": false}]}"#,
+        );
         let loaded = loaded_config_with_evidence_file(&path);
         let items = load_evidence_file(&loaded, "SPY");
         assert!(!items[0].untrusted_text);
@@ -280,7 +306,10 @@ mod tests {
     fn title_is_truncated_to_240_characters() {
         let dir = temp_dir("titletrunc");
         let long_title = "x".repeat(500);
-        let path = write_evidence_file(&dir, &format!(r#"{{"evidence": [{{"title": "{long_title}"}}]}}"#));
+        let path = write_evidence_file(
+            &dir,
+            &format!(r#"{{"evidence": [{{"title": "{long_title}"}}]}}"#),
+        );
         let loaded = loaded_config_with_evidence_file(&path);
         let items = load_evidence_file(&loaded, "SPY");
         assert_eq!(items[0].title.chars().count(), 240);
@@ -290,7 +319,10 @@ mod tests {
     #[test]
     fn non_object_rows_are_skipped_not_erroring() {
         let dir = temp_dir("nonobjectrow");
-        let path = write_evidence_file(&dir, r#"{"evidence": ["not-an-object", {"title": "valid"}]}"#);
+        let path = write_evidence_file(
+            &dir,
+            r#"{"evidence": ["not-an-object", {"title": "valid"}]}"#,
+        );
         let loaded = loaded_config_with_evidence_file(&path);
         let items = load_evidence_file(&loaded, "SPY");
         assert_eq!(items.len(), 1);

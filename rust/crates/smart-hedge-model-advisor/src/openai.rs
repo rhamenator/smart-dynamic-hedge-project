@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use smart_hedge_config::{ContractConfig, LoadedConfig};
 use smart_hedge_models::{CoreResponse, FeatureSet, MarketSnapshot, ModelAssessment};
 
@@ -46,7 +46,11 @@ impl OpenAIAdvisor {
     /// config's `model.name` is the non-empty placeholder
     /// `"configure-with-OPENAI_MODEL"`, so this fallback only matters for
     /// a config that explicitly sets `model.name: ""`).
-    pub fn new(loaded: &LoadedConfig, api_key: String, openai_model_env: Option<&str>) -> Result<Self, AdvisorError> {
+    pub fn new(
+        loaded: &LoadedConfig,
+        api_key: String,
+        openai_model_env: Option<&str>,
+    ) -> Result<Self, AdvisorError> {
         let configured_name = loaded.config.model.name.trim();
         let model = if configured_name.is_empty() {
             openai_model_env.unwrap_or("").trim().to_string()
@@ -54,7 +58,9 @@ impl OpenAIAdvisor {
             configured_name.to_string()
         };
         if model.is_empty() || model == "configure-with-OPENAI_MODEL" {
-            return Err(AdvisorError("set OPENAI_MODEL or model.name before enabling the OpenAI adviser".to_string()));
+            return Err(AdvisorError(
+                "set OPENAI_MODEL or model.name before enabling the OpenAI adviser".to_string(),
+            ));
         }
         if api_key.is_empty() {
             return Err(AdvisorError("OPENAI_API_KEY is not set".to_string()));
@@ -82,10 +88,17 @@ impl OpenAIAdvisor {
     /// whole point is that the URI itself names the model, not a side
     /// channel. `OPENAI_API_KEY` is still the only credential source;
     /// this router never adds a second way to supply a secret.
-    pub fn with_explicit_model(loaded: &LoadedConfig, api_key: String, model: String) -> Result<Self, AdvisorError> {
+    pub fn with_explicit_model(
+        loaded: &LoadedConfig,
+        api_key: String,
+        model: String,
+    ) -> Result<Self, AdvisorError> {
         let model = model.trim().to_string();
         if model.is_empty() {
-            return Err(AdvisorError("model URI openai:// needs a non-empty identifier, e.g. openai://gpt-4.1".to_string()));
+            return Err(AdvisorError(
+                "model URI openai:// needs a non-empty identifier, e.g. openai://gpt-4.1"
+                    .to_string(),
+            ));
         }
         if api_key.is_empty() {
             return Err(AdvisorError("OPENAI_API_KEY is not set".to_string()));
@@ -110,7 +123,13 @@ impl OpenAIAdvisor {
     }
 
     /// Port of `OpenAIAdvisor._payload`. Pure (no I/O), directly testable.
-    fn build_payload(&self, snapshot: &MarketSnapshot, features: &FeatureSet, core: &CoreResponse, contract: &ContractConfig) -> Value {
+    fn build_payload(
+        &self,
+        snapshot: &MarketSnapshot,
+        features: &FeatureSet,
+        core: &CoreResponse,
+        contract: &ContractConfig,
+    ) -> Value {
         let evidence: Vec<Value> = snapshot
             .evidence
             .iter()
@@ -177,7 +196,9 @@ fn extract_output_text(response_json: &Value) -> Option<String> {
         if item.get("type").and_then(Value::as_str) != Some("message") {
             continue;
         }
-        let Some(content) = item.get("content").and_then(Value::as_array) else { continue };
+        let Some(content) = item.get("content").and_then(Value::as_array) else {
+            continue;
+        };
         for block in content {
             if block.get("type").and_then(Value::as_str) == Some("output_text")
                 && let Some(text) = block.get("text").and_then(Value::as_str)
@@ -186,7 +207,11 @@ fn extract_output_text(response_json: &Value) -> Option<String> {
             }
         }
     }
-    if combined.is_empty() { None } else { Some(combined) }
+    if combined.is_empty() {
+        None
+    } else {
+        Some(combined)
+    }
 }
 
 impl Advisor for OpenAIAdvisor {
@@ -233,18 +258,24 @@ impl Advisor for OpenAIAdvisor {
             .map_err(|e| AdvisorError(format!("OpenAI request failed: {e}")))?;
         let text_body = crate::http_util::read_capped_body(response, 5_000_000)
             .map_err(|e| AdvisorError(format!("failed to read response body: {e}")))?;
-        let response_json: Value =
-            serde_json::from_str(&text_body).map_err(|e| AdvisorError(format!("invalid JSON response: {e}")))?;
+        let response_json: Value = serde_json::from_str(&text_body)
+            .map_err(|e| AdvisorError(format!("invalid JSON response: {e}")))?;
 
         let output_text = extract_output_text(&response_json)
             .ok_or_else(|| AdvisorError("model response contained no output_text".to_string()))?;
-        let decoded: Value =
-            serde_json::from_str(&output_text).map_err(|e| AdvisorError(format!("model output was not valid JSON: {e}")))?;
+        let decoded: Value = serde_json::from_str(&output_text)
+            .map_err(|e| AdvisorError(format!("model output was not valid JSON: {e}")))?;
         if !decoded.is_object() {
-            return Err(AdvisorError("model response was not a JSON object".to_string()));
+            return Err(AdvisorError(
+                "model response was not a JSON object".to_string(),
+            ));
         }
-        let response_id = response_json.get("id").and_then(Value::as_str).unwrap_or("");
-        validate_assessment_payload(&decoded, "openai", &self.model, response_id).map_err(|e| AdvisorError(e.to_string()))
+        let response_id = response_json
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        validate_assessment_payload(&decoded, "openai", &self.model, response_id)
+            .map_err(|e| AdvisorError(e.to_string()))
     }
 
     fn name(&self) -> &'static str {
@@ -256,17 +287,23 @@ impl Advisor for OpenAIAdvisor {
 mod tests {
     use super::*;
     use smart_hedge_config::EnvOverrides;
-    use smart_hedge_models::{Bar, CoreGreeks, CoreHedge, CoreInputs, CorePricing, CoreRisk, EvidenceItem, Quote};
+    use smart_hedge_models::{
+        Bar, CoreGreeks, CoreHedge, CoreInputs, CorePricing, CoreRisk, EvidenceItem, Quote,
+    };
     use std::collections::BTreeMap;
 
     fn loaded_config_with_model(model_json: &str) -> LoadedConfig {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-model-advisor-openai-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-model-advisor-openai-test-{}-{n}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, format!(r#"{{"model": {model_json}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         loaded
     }
@@ -284,21 +321,27 @@ mod tests {
         // router's explicit model identifier still wins -- this
         // constructor never consults config.model.name at all.
         let loaded = loaded_config_with_model(r#"{"name": "configure-with-OPENAI_MODEL"}"#);
-        let result = OpenAIAdvisor::with_explicit_model(&loaded, "sk-test".to_string(), "gpt-4.1".to_string());
+        let result = OpenAIAdvisor::with_explicit_model(
+            &loaded,
+            "sk-test".to_string(),
+            "gpt-4.1".to_string(),
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn with_explicit_model_rejects_an_empty_model() {
         let loaded = loaded_config_with_model(r#"{}"#);
-        let result = OpenAIAdvisor::with_explicit_model(&loaded, "sk-test".to_string(), "  ".to_string());
+        let result =
+            OpenAIAdvisor::with_explicit_model(&loaded, "sk-test".to_string(), "  ".to_string());
         assert!(result.is_err());
     }
 
     #[test]
     fn with_explicit_model_rejects_a_missing_api_key() {
         let loaded = loaded_config_with_model(r#"{}"#);
-        let result = OpenAIAdvisor::with_explicit_model(&loaded, String::new(), "gpt-4.1".to_string());
+        let result =
+            OpenAIAdvisor::with_explicit_model(&loaded, String::new(), "gpt-4.1".to_string());
         assert!(result.is_err());
     }
 
@@ -331,21 +374,44 @@ mod tests {
     }
 
     fn advisor() -> OpenAIAdvisor {
-        let loaded = loaded_config_with_model(r#"{"name": "gpt-real", "max_evidence_items": 2, "max_evidence_chars": 5}"#);
+        let loaded = loaded_config_with_model(
+            r#"{"name": "gpt-real", "max_evidence_items": 2, "max_evidence_chars": 5}"#,
+        );
         OpenAIAdvisor::new(&loaded, "sk-test".to_string(), None).unwrap()
     }
 
     fn base_snapshot(evidence: Vec<EvidenceItem>) -> MarketSnapshot {
         MarketSnapshot::new(
             "SPY",
-            Quote::new("SPY", 99.0, 101.0, 100.0, "2026-07-19T00:00:00Z", "test", "open"),
-            vec![Bar { timestamp: "t".to_string(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 1.0 }],
+            Quote::new(
+                "SPY",
+                99.0,
+                101.0,
+                100.0,
+                "2026-07-19T00:00:00Z",
+                "test",
+                "open",
+            ),
+            vec![Bar {
+                timestamp: "t".to_string(),
+                open: 1.0,
+                high: 1.0,
+                low: 1.0,
+                close: 1.0,
+                volume: 1.0,
+            }],
             evidence,
         )
     }
 
     fn base_features() -> FeatureSet {
-        FeatureSet { values: BTreeMap::new(), missing: vec![], warnings: vec![], data_quality: 1.0, evidence_ids: vec![] }
+        FeatureSet {
+            values: BTreeMap::new(),
+            missing: vec![],
+            warnings: vec![],
+            data_quality: 1.0,
+            evidence_ids: vec![],
+        }
     }
 
     fn base_core() -> CoreResponse {
@@ -366,8 +432,18 @@ mod tests {
                 tree_steps: 600,
                 base_no_trade_band_shares: 2.0,
             },
-            pricing: CorePricing { model_price: 1.0, european_price: 1.0, early_exercise_premium: 0.0 },
-            greeks: CoreGreeks { delta: -0.5, gamma: 0.01, vega_per_vol_point: 0.1, theta_per_calendar_day: -0.01, rho_per_rate_point: -0.01 },
+            pricing: CorePricing {
+                model_price: 1.0,
+                european_price: 1.0,
+                early_exercise_premium: 0.0,
+            },
+            greeks: CoreGreeks {
+                delta: -0.5,
+                gamma: 0.01,
+                vega_per_vol_point: 0.1,
+                theta_per_calendar_day: -0.01,
+                rho_per_rate_point: -0.01,
+            },
             hedge: CoreHedge {
                 option_position_delta_shares: -50.0,
                 target_stock_shares: 50.0,
@@ -376,7 +452,9 @@ mod tests {
                 action: "x".to_string(),
                 stock_notional: 5000.0,
             },
-            risk: CoreRisk { position_gamma_pnl_for_1pct_move: 1.0 },
+            risk: CoreRisk {
+                position_gamma_pnl_for_1pct_move: 1.0,
+            },
         }
     }
 
@@ -414,8 +492,13 @@ mod tests {
     #[test]
     fn build_payload_caps_evidence_item_count() {
         let advisor = advisor();
-        let snapshot = base_snapshot(vec![evidence_item("e1", "a"), evidence_item("e2", "b"), evidence_item("e3", "c")]);
-        let payload = advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
+        let snapshot = base_snapshot(vec![
+            evidence_item("e1", "a"),
+            evidence_item("e2", "b"),
+            evidence_item("e3", "c"),
+        ]);
+        let payload =
+            advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
         assert_eq!(payload["evidence"].as_array().unwrap().len(), 2); // capped at max_evidence_items=2
     }
 
@@ -423,7 +506,8 @@ mod tests {
     fn build_payload_truncates_evidence_text() {
         let advisor = advisor();
         let snapshot = base_snapshot(vec![evidence_item("e1", "this text is long")]);
-        let payload = advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
+        let payload =
+            advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
         assert_eq!(payload["evidence"][0]["text"], "this "); // truncated to max_evidence_chars=5
     }
 
@@ -431,17 +515,24 @@ mod tests {
     fn build_payload_never_includes_a_secrets_field() {
         let advisor = advisor();
         let snapshot = base_snapshot(vec![]);
-        let payload = advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
+        let payload =
+            advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
         let dumped = serde_json::to_string(&payload).unwrap();
-        assert!(!dumped.contains("sk-test"), "the API key must never appear in the model payload");
+        assert!(
+            !dumped.contains("sk-test"),
+            "the API key must never appear in the model payload"
+        );
     }
 
     #[test]
     fn build_payload_hard_boundary_forbids_order_relevant_outputs() {
         let advisor = advisor();
         let snapshot = base_snapshot(vec![]);
-        let payload = advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
-        let forbidden = payload["hard_boundary"]["do_not_compute_or_change"].as_array().unwrap();
+        let payload =
+            advisor.build_payload(&snapshot, &base_features(), &base_core(), &base_contract());
+        let forbidden = payload["hard_boundary"]["do_not_compute_or_change"]
+            .as_array()
+            .unwrap();
         assert!(forbidden.iter().any(|v| v == "execution approval"));
     }
 
@@ -453,7 +544,10 @@ mod tests {
                 {"type": "message", "content": [{"type": "output_text", "text": "1}"}]}
             ]
         });
-        assert_eq!(extract_output_text(&response), Some("{\"a\":1}".to_string()));
+        assert_eq!(
+            extract_output_text(&response),
+            Some("{\"a\":1}".to_string())
+        );
     }
 
     #[test]
@@ -505,7 +599,12 @@ mod tests {
         let port = crate::mock_http_test_support::start(200, body);
         let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
 
-        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        let result = advisor.assess(
+            &base_snapshot(vec![]),
+            &base_features(),
+            &base_core(),
+            &base_contract(),
+        );
         let assessment = result.expect("assess should succeed against the mock server");
         assert_eq!(assessment.regime, "calm");
         assert_eq!(assessment.raw_response_id, "resp_test123");
@@ -519,7 +618,12 @@ mod tests {
         let port = crate::mock_http_test_support::start(500, "server error".to_string());
         let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
 
-        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        let result = advisor.assess(
+            &base_snapshot(vec![]),
+            &base_features(),
+            &base_core(),
+            &base_contract(),
+        );
         assert!(result.is_err());
     }
 
@@ -532,7 +636,12 @@ mod tests {
         let port = crate::mock_http_test_support::start(200, body);
         let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
 
-        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        let result = advisor.assess(
+            &base_snapshot(vec![]),
+            &base_features(),
+            &base_core(),
+            &base_contract(),
+        );
         assert!(matches!(result, Err(AdvisorError(msg)) if msg.contains("output_text")));
     }
 
@@ -546,7 +655,12 @@ mod tests {
         let port = crate::mock_http_test_support::start(200, body);
         let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
 
-        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
+        let result = advisor.assess(
+            &base_snapshot(vec![]),
+            &base_features(),
+            &base_core(),
+            &base_contract(),
+        );
         assert!(result.is_err());
     }
 
@@ -587,36 +701,70 @@ mod tests {
         .unwrap();
         let unicode_content = serde_json::to_string(&{
             let mut v = valid_assessment_json_value();
-            v["summary"] = json!("🚀 市場は不安定 — some risk 描述 with emoji 🎉 and \"quotes\" and \\backslashes\\");
+            v["summary"] = json!(
+                "🚀 市場は不安定 — some risk 描述 with emoji 🎉 and \"quotes\" and \\backslashes\\"
+            );
             v
         })
         .unwrap();
 
         let cases: Vec<(&str, String)> = vec![
-            ("output_text_is_not_json_at_all", responses_api_body("r1", "definitely not json { garbage")),
-            ("output_text_is_a_json_array_not_object", responses_api_body("r2", "[1,2,3]")),
+            (
+                "output_text_is_not_json_at_all",
+                responses_api_body("r1", "definitely not json { garbage"),
+            ),
+            (
+                "output_text_is_a_json_array_not_object",
+                responses_api_body("r2", "[1,2,3]"),
+            ),
             ("output_text_is_empty_string", responses_api_body("r3", "")),
-            ("output_missing_entirely", serde_json::to_string(&json!({"id": "r4"})).unwrap()),
-            ("output_is_null", serde_json::to_string(&json!({"id": "r5", "output": null})).unwrap()),
-            ("extra_unexpected_field", responses_api_body("r6", &extra_field)),
-            ("evidence_ids_far_exceeds_the_cap", responses_api_body("r7", &huge_evidence_ids)),
-            ("wildly_overlong_summary", responses_api_body("r8", &overlong_summary)),
-            ("band_multiplier_absurdly_out_of_range", responses_api_body("r9", &out_of_range_band)),
-            ("unicode_and_quote_heavy_content", responses_api_body("r10", &unicode_content)),
-            ("top_level_response_is_not_json", "not even json".to_string()),
+            (
+                "output_missing_entirely",
+                serde_json::to_string(&json!({"id": "r4"})).unwrap(),
+            ),
+            (
+                "output_is_null",
+                serde_json::to_string(&json!({"id": "r5", "output": null})).unwrap(),
+            ),
+            (
+                "extra_unexpected_field",
+                responses_api_body("r6", &extra_field),
+            ),
+            (
+                "evidence_ids_far_exceeds_the_cap",
+                responses_api_body("r7", &huge_evidence_ids),
+            ),
+            (
+                "wildly_overlong_summary",
+                responses_api_body("r8", &overlong_summary),
+            ),
+            (
+                "band_multiplier_absurdly_out_of_range",
+                responses_api_body("r9", &out_of_range_band),
+            ),
+            (
+                "unicode_and_quote_heavy_content",
+                responses_api_body("r10", &unicode_content),
+            ),
+            (
+                "top_level_response_is_not_json",
+                "not even json".to_string(),
+            ),
             ("top_level_response_is_a_bare_array", "[]".to_string()),
         ];
 
         for (name, body) in cases {
             let port = crate::mock_http_test_support::start(200, body);
-            let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
+            let advisor =
+                advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
             let snapshot = base_snapshot(vec![]);
             let features = base_features();
             let core = base_core();
             let contract = base_contract();
 
-            let outcome =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| advisor.assess(&snapshot, &features, &core, &contract)));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                advisor.assess(&snapshot, &features, &core, &contract)
+            }));
             match outcome {
                 Ok(_) => {}
                 Err(_) => panic!("case {name:?} PANICKED instead of returning a Result"),
@@ -631,13 +779,23 @@ mod tests {
     #[test]
     fn assess_accepts_unicode_and_quote_heavy_but_otherwise_valid_content() {
         let mut value = valid_assessment_json_value();
-        value["summary"] = json!("🚀 市場は不安定 — some risk 描述 with emoji 🎉 and \"quotes\" and \\backslashes\\");
+        value["summary"] = json!(
+            "🚀 市場は不安定 — some risk 描述 with emoji 🎉 and \"quotes\" and \\backslashes\\"
+        );
         let body = responses_api_body("r-unicode", &serde_json::to_string(&value).unwrap());
         let port = crate::mock_http_test_support::start(200, body);
         let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
 
-        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
-        assert!(result.is_ok(), "expected unicode/quote-heavy but schema-valid content to be accepted, got {result:?}");
+        let result = advisor.assess(
+            &base_snapshot(vec![]),
+            &base_features(),
+            &base_core(),
+            &base_contract(),
+        );
+        assert!(
+            result.is_ok(),
+            "expected unicode/quote-heavy but schema-valid content to be accepted, got {result:?}"
+        );
     }
 
     /// The response-body size cap (`http_util::read_capped_body`) is real
@@ -647,11 +805,22 @@ mod tests {
     #[test]
     fn assess_is_protected_from_an_oversized_response_body() {
         let huge = responses_api_body("r-huge", &"x".repeat(6_000_000));
-        assert!(huge.len() > 5_000_000, "fixture should exceed the 5,000,000-byte cap to be a meaningful test");
+        assert!(
+            huge.len() > 5_000_000,
+            "fixture should exceed the 5,000,000-byte cap to be a meaningful test"
+        );
         let port = crate::mock_http_test_support::start(200, huge);
         let advisor = advisor().with_responses_url(format!("http://127.0.0.1:{port}/v1/responses"));
 
-        let result = advisor.assess(&base_snapshot(vec![]), &base_features(), &base_core(), &base_contract());
-        assert!(result.is_err(), "a truncated (oversized) response should fail cleanly, not succeed");
+        let result = advisor.assess(
+            &base_snapshot(vec![]),
+            &base_features(),
+            &base_core(),
+            &base_contract(),
+        );
+        assert!(
+            result.is_err(),
+            "a truncated (oversized) response should fail cleanly, not succeed"
+        );
     }
 }

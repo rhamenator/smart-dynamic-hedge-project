@@ -89,6 +89,9 @@ mod tests {
     fn hash_is_a_64_character_lowercase_hex_string() {
         let hash = hash_payload(&json!({"a": 1}));
         assert_eq!(hash.len(), 64);
-        assert!(hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(
+            hash.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
     }
 }

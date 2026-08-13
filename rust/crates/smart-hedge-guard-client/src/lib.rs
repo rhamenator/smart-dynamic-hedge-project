@@ -26,7 +26,7 @@
 
 use std::path::Path;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use smart_hedge_mcp_client::{ClientError, McpClient};
 
 pub struct GuardClient {
@@ -66,7 +66,11 @@ impl GuardClient {
     /// full `{policy_outcome, order, was_duplicate}` JSON as text — not a
     /// panic or a swallowed failure. Callers should parse and display it,
     /// not just propagate a generic error message.
-    pub fn authorize_and_submit_paper_order(&mut self, intent: Value, evidence: Option<Value>) -> Result<Value, ClientError> {
+    pub fn authorize_and_submit_paper_order(
+        &mut self,
+        intent: Value,
+        evidence: Option<Value>,
+    ) -> Result<Value, ClientError> {
         let mut arguments = serde_json::Map::new();
         arguments.insert("intent".to_string(), intent);
         if let Some(evidence) = evidence {
@@ -123,7 +127,11 @@ pub fn format_decimal_string(value: f64) -> String {
     let magnitude = value.abs();
     let rounded = format!("{magnitude:.8}");
     let trimmed = rounded.trim_end_matches('0').trim_end_matches('.');
-    if trimmed.is_empty() { "0".to_string() } else { trimmed.to_string() }
+    if trimmed.is_empty() {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 pub fn build_trade_intent(params: &TradeIntentParams) -> Value {

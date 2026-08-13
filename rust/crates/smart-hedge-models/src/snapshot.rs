@@ -21,7 +21,12 @@ fn default_received_at() -> String {
 }
 
 impl MarketSnapshot {
-    pub fn new(symbol: impl Into<String>, quote: Quote, bars: Vec<Bar>, evidence: Vec<EvidenceItem>) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        quote: Quote,
+        bars: Vec<Bar>,
+        evidence: Vec<EvidenceItem>,
+    ) -> Self {
         MarketSnapshot {
             symbol: symbol.into(),
             quote,

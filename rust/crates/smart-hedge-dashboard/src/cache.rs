@@ -12,13 +12,20 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(seconds: f64) -> Self {
-        Cache { seconds: seconds.max(0.0), values: Mutex::new(HashMap::new()) }
+        Cache {
+            seconds: seconds.max(0.0),
+            values: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn get(&self, symbol: &str) -> Option<serde_json::Value> {
         let values = self.values.lock().expect("cache mutex poisoned");
         let (inserted_at, value) = values.get(symbol)?;
-        if inserted_at.elapsed().as_secs_f64() <= self.seconds { Some(value.clone()) } else { None }
+        if inserted_at.elapsed().as_secs_f64() <= self.seconds {
+            Some(value.clone())
+        } else {
+            None
+        }
     }
 
     pub fn put(&self, symbol: &str, value: serde_json::Value) {

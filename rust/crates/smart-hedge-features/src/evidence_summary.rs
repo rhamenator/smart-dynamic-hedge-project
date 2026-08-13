@@ -65,7 +65,10 @@ mod tests {
 
     #[test]
     fn key_sanitizes_non_alphanumeric_and_lowercases() {
-        assert_eq!(evidence_feature_key("Earnings: Q2 2026!"), "evidence_earnings__q2_2026_");
+        assert_eq!(
+            evidence_feature_key("Earnings: Q2 2026!"),
+            "evidence_earnings__q2_2026_"
+        );
     }
 
     #[test]

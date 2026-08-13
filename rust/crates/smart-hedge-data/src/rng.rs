@@ -52,11 +52,7 @@ impl Rng {
     }
 
     pub fn sign(&mut self) -> f64 {
-        if self.random() < 0.5 {
-            -1.0
-        } else {
-            1.0
-        }
+        if self.random() < 0.5 { -1.0 } else { 1.0 }
     }
 }
 

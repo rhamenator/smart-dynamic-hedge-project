@@ -1,7 +1,9 @@
 /// Log returns between consecutive closes: `ln(closes[i] / closes[i-1])`
 /// for `i` in `1..closes.len()`.
 pub fn log_returns(closes: &[f64]) -> Vec<f64> {
-    (1..closes.len()).map(|i| (closes[i] / closes[i - 1]).ln()).collect()
+    (1..closes.len())
+        .map(|i| (closes[i] / closes[i - 1]).ln())
+        .collect()
 }
 
 /// Port of `horizon_return`: the fractional change from `window` bars ago

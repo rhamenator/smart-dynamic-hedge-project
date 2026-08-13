@@ -1,13 +1,20 @@
 use std::collections::BTreeSet;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use smart_hedge_models::ModelAssessment;
 
 use crate::error::SchemaError;
 
 /// Port of `ALLOWED_REGIMES`.
-pub const ALLOWED_REGIMES: [&str; 7] =
-    ["calm", "trend_up", "trend_down", "volatile", "jump_risk", "illiquid", "uncertain"];
+pub const ALLOWED_REGIMES: [&str; 7] = [
+    "calm",
+    "trend_up",
+    "trend_down",
+    "volatile",
+    "jump_risk",
+    "illiquid",
+    "uncertain",
+];
 
 const REQUIRED_KEYS: [&str; 9] = [
     "regime",
@@ -22,12 +29,16 @@ const REQUIRED_KEYS: [&str; 9] = [
 ];
 
 fn finite_number(value: &Value, field: &str, low: f64, high: f64) -> Result<f64, SchemaError> {
-    let n = value.as_f64().ok_or_else(|| SchemaError::NotNumeric(field.to_string()))?;
+    let n = value
+        .as_f64()
+        .ok_or_else(|| SchemaError::NotNumeric(field.to_string()))?;
     // `as_f64()` on a `Value::Bool` returns `None` already (bools are a
     // distinct JSON type from numbers), so the "not a bool" exclusion
     // Python needs explicitly is automatic here.
     if !n.is_finite() || !(low..=high).contains(&n) {
-        return Err(SchemaError::OutOfRange { field: field.to_string() });
+        return Err(SchemaError::OutOfRange {
+            field: field.to_string(),
+        });
     }
     Ok(n)
 }
@@ -35,16 +46,29 @@ fn finite_number(value: &Value, field: &str, low: f64, high: f64) -> Result<f64,
 /// Port of `_string_list`: rejects a non-list or an over-long list, but
 /// *truncates* (not rejects) any individual string longer than `item_max`
 /// characters — matching Python's `item[:item_max]` exactly.
-fn string_list(value: &Value, field: &str, max_items: usize, item_max: usize) -> Result<Vec<String>, SchemaError> {
-    let arr = value.as_array().ok_or_else(|| SchemaError::NotAList { field: field.to_string(), max: max_items })?;
+fn string_list(
+    value: &Value,
+    field: &str,
+    max_items: usize,
+    item_max: usize,
+) -> Result<Vec<String>, SchemaError> {
+    let arr = value.as_array().ok_or_else(|| SchemaError::NotAList {
+        field: field.to_string(),
+        max: max_items,
+    })?;
     if arr.len() > max_items {
-        return Err(SchemaError::NotAList { field: field.to_string(), max: max_items });
+        return Err(SchemaError::NotAList {
+            field: field.to_string(),
+            max: max_items,
+        });
     }
     arr.iter()
         .map(|item| {
             item.as_str()
                 .map(|s| s.chars().take(item_max).collect())
-                .ok_or_else(|| SchemaError::ListItemNotAString { field: field.to_string() })
+                .ok_or_else(|| SchemaError::ListItemNotAString {
+                    field: field.to_string(),
+                })
         })
         .collect()
 }
@@ -86,16 +110,24 @@ pub fn validate_assessment_payload(
     model: &str,
     response_id: &str,
 ) -> Result<ModelAssessment, SchemaError> {
-    let obj = payload.as_object().ok_or_else(|| SchemaError::KeyMismatch {
-        missing: REQUIRED_KEYS.iter().map(|s| s.to_string()).collect(),
-        extra: vec![],
-    })?;
+    let obj = payload
+        .as_object()
+        .ok_or_else(|| SchemaError::KeyMismatch {
+            missing: REQUIRED_KEYS.iter().map(|s| s.to_string()).collect(),
+            extra: vec![],
+        })?;
 
     let expected: BTreeSet<&str> = REQUIRED_KEYS.into_iter().collect();
     let actual: BTreeSet<&str> = obj.keys().map(String::as_str).collect();
     if actual != expected {
-        let missing: Vec<String> = expected.difference(&actual).map(|s| s.to_string()).collect();
-        let extra: Vec<String> = actual.difference(&expected).map(|s| s.to_string()).collect();
+        let missing: Vec<String> = expected
+            .difference(&actual)
+            .map(|s| s.to_string())
+            .collect();
+        let extra: Vec<String> = actual
+            .difference(&expected)
+            .map(|s| s.to_string())
+            .collect();
         return Err(SchemaError::KeyMismatch { missing, extra });
     }
 
@@ -117,7 +149,10 @@ pub fn validate_assessment_payload(
         .map(|x| finite_number(x, "scenario shock", -0.30, 0.30))
         .collect::<Result<Vec<f64>, SchemaError>>()?;
 
-    let summary = payload["summary"].as_str().filter(|s| s.chars().count() <= 1000).ok_or(SchemaError::SummaryInvalid)?;
+    let summary = payload["summary"]
+        .as_str()
+        .filter(|s| s.chars().count() <= 1000)
+        .ok_or(SchemaError::SummaryInvalid)?;
 
     Ok(ModelAssessment {
         advisor_kind: advisor_kind.to_string(),
@@ -186,7 +221,9 @@ mod tests {
         payload.as_object_mut().unwrap().remove("summary");
         let result = validate_assessment_payload(&payload, "test", "test", "");
         match result {
-            Err(SchemaError::KeyMismatch { missing, .. }) => assert_eq!(missing, vec!["summary".to_string()]),
+            Err(SchemaError::KeyMismatch { missing, .. }) => {
+                assert_eq!(missing, vec!["summary".to_string()])
+            }
             other => panic!("expected KeyMismatch, got {other:?}"),
         }
     }
@@ -230,7 +267,10 @@ mod tests {
         let mut payload = valid_payload();
         payload["scenario_spot_shocks"] = json!([]);
         let result = validate_assessment_payload(&payload, "test", "test", "");
-        assert!(matches!(result, Err(SchemaError::ScenarioShocksCountOutOfRange)));
+        assert!(matches!(
+            result,
+            Err(SchemaError::ScenarioShocksCountOutOfRange)
+        ));
     }
 
     #[test]
@@ -238,7 +278,10 @@ mod tests {
         let mut payload = valid_payload();
         payload["scenario_spot_shocks"] = json!([0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08]);
         let result = validate_assessment_payload(&payload, "test", "test", "");
-        assert!(matches!(result, Err(SchemaError::ScenarioShocksCountOutOfRange)));
+        assert!(matches!(
+            result,
+            Err(SchemaError::ScenarioShocksCountOutOfRange)
+        ));
     }
 
     #[test]
@@ -263,7 +306,10 @@ mod tests {
         let mut payload = valid_payload();
         payload["risks"] = json!([5]);
         let result = validate_assessment_payload(&payload, "test", "test", "");
-        assert!(matches!(result, Err(SchemaError::ListItemNotAString { .. })));
+        assert!(matches!(
+            result,
+            Err(SchemaError::ListItemNotAString { .. })
+        ));
     }
 
     #[test]
@@ -288,7 +334,12 @@ mod tests {
     #[test]
     fn assessment_json_schema_required_matches_the_validator_required_keys() {
         let schema = assessment_json_schema();
-        let required: Vec<&str> = schema["required"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        let required: Vec<&str> = schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
         assert_eq!(required, REQUIRED_KEYS);
     }
 

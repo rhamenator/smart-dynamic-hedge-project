@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use smart_hedge_mcp_client::{ClientError, McpClient};
 
 pub struct IntelligenceClient {
@@ -41,7 +41,12 @@ impl IntelligenceClient {
         Ok(result
             .get("source_ids")
             .and_then(Value::as_array)
-            .map(|arr| arr.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default())
     }
 
@@ -49,8 +54,14 @@ impl IntelligenceClient {
         self.call_json("ingest-source-records", json!({"source_id": source_id}))
     }
 
-    pub fn get_source_record_history(&mut self, source_record_id: &str) -> Result<Value, ClientError> {
-        self.call_json("get-source-record-history", json!({"source_record_id": source_record_id}))
+    pub fn get_source_record_history(
+        &mut self,
+        source_record_id: &str,
+    ) -> Result<Value, ClientError> {
+        self.call_json(
+            "get-source-record-history",
+            json!({"source_record_id": source_record_id}),
+        )
     }
 
     /// `items` is a list of `{"record": <SourceRecord>, "decision": <SourceUseDecision>}`
@@ -83,7 +94,8 @@ mod tests {
 
     #[test]
     fn spawning_a_nonexistent_binary_is_a_spawn_error() {
-        let bogus = std::env::temp_dir().join("this-market-intelligence-binary-does-not-exist-12345.exe");
+        let bogus =
+            std::env::temp_dir().join("this-market-intelligence-binary-does-not-exist-12345.exe");
         let result = IntelligenceClient::spawn(&bogus);
         assert!(matches!(result, Err(ClientError::Spawn(_))));
     }

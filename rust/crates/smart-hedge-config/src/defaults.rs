@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Exact JSON-tree equivalent of Python's `DEFAULT_CONFIG` dict literal in
 /// `config.py`. Deep-merged with any user-supplied JSON before being

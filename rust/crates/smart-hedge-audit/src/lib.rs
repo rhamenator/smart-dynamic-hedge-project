@@ -20,7 +20,13 @@ use std::path::{Path, PathBuf};
 /// Substrings that would only plausibly appear in order-placement code —
 /// naming an order tool, or a broker's real (non-data) trading endpoint.
 /// Checked case-insensitively.
-const FORBIDDEN_SUBSTRINGS: &[&str] = &["place_order", "submit_order", "cancel_order", "/v2/orders", "orders/place"];
+const FORBIDDEN_SUBSTRINGS: &[&str] = &[
+    "place_order",
+    "submit_order",
+    "cancel_order",
+    "/v2/orders",
+    "orders/place",
+];
 
 /// HTTP verbs capable of mutating remote state. `ureq::post` is allowed
 /// in exactly one file (the OpenAI Responses API call, which never talks
@@ -47,7 +53,9 @@ pub struct Violation {
 /// asserting an order tool *doesn't* exist is expected to mention its
 /// name; that's not a violation.
 pub fn scan_file(path: &Path) -> Vec<Violation> {
-    let Ok(text) = fs::read_to_string(path) else { return vec![] };
+    let Ok(text) = fs::read_to_string(path) else {
+        return vec![];
+    };
     let mut violations = Vec::new();
     let normalized_path = path.to_string_lossy().replace('\\', "/");
     let is_allowed_post_file = normalized_path.ends_with(ALLOWED_POST_FILE_SUFFIX);
@@ -74,7 +82,8 @@ pub fn scan_file(path: &Path) -> Vec<Violation> {
                 path: path.to_path_buf(),
                 line_number: index + 1,
                 line: line.to_string(),
-                reason: "ureq::post( used outside the one allowed file (OpenAI Responses API)".to_string(),
+                reason: "ureq::post( used outside the one allowed file (OpenAI Responses API)"
+                    .to_string(),
             });
         }
         for verb in MUTATING_VERBS {
@@ -83,7 +92,9 @@ pub fn scan_file(path: &Path) -> Vec<Violation> {
                     path: path.to_path_buf(),
                     line_number: index + 1,
                     line: line.to_string(),
-                    reason: format!("mutating HTTP verb {verb} is never expected anywhere in this codebase"),
+                    reason: format!(
+                        "mutating HTTP verb {verb} is never expected anywhere in this codebase"
+                    ),
                 });
             }
         }
@@ -97,7 +108,9 @@ pub fn scan_file(path: &Path) -> Vec<Violation> {
 /// output directory.
 pub fn collect_rust_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(root) else { return out };
+    let Ok(entries) = fs::read_dir(root) else {
+        return out;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -119,7 +132,12 @@ mod tests {
 
     fn repo_rust_dir() -> PathBuf {
         // rust/crates/smart-hedge-audit -> rust/ is 2 levels up.
-        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf()
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf()
     }
 
     /// SDH-LLR-080: no production Rust source in this workspace constructs
@@ -129,7 +147,11 @@ mod tests {
     #[test]
     fn no_production_rust_source_names_or_constructs_an_order_placement_request() {
         let files = collect_rust_files(&repo_rust_dir());
-        assert!(files.len() > 50, "sanity check: expected to find many .rs files, found {}", files.len());
+        assert!(
+            files.len() > 50,
+            "sanity check: expected to find many .rs files, found {}",
+            files.len()
+        );
 
         let mut all_violations = Vec::new();
         for file in &files {
@@ -142,7 +164,13 @@ mod tests {
             all_violations.len(),
             all_violations
                 .iter()
-                .map(|v| format!("  {}:{}: {} | {}", v.path.display(), v.line_number, v.reason, v.line.trim()))
+                .map(|v| format!(
+                    "  {}:{}: {} | {}",
+                    v.path.display(),
+                    v.line_number,
+                    v.reason,
+                    v.line.trim()
+                ))
                 .collect::<Vec<_>>()
                 .join("\n")
         );
@@ -154,33 +182,50 @@ mod tests {
     /// flagged.
     #[test]
     fn the_checker_itself_flags_a_deliberately_planted_violation() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-audit-selftest-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("smart-hedge-audit-selftest-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("fixture.rs");
         std::fs::write(&path, "pub fn place_order(qty: f64) {}\n").unwrap();
 
         let violations = scan_file(&path);
-        assert!(!violations.is_empty(), "checker failed to flag a planted place_order fixture");
+        assert!(
+            !violations.is_empty(),
+            "checker failed to flag a planted place_order fixture"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn the_checker_ignores_a_planted_mention_inside_a_test_module() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-audit-selftest-testmod-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-audit-selftest-testmod-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("fixture.rs");
-        std::fs::write(&path, "pub fn real_code() {}\n\nmod tests {\n    fn asserts_no_place_order() {}\n}\n").unwrap();
+        std::fs::write(
+            &path,
+            "pub fn real_code() {}\n\nmod tests {\n    fn asserts_no_place_order() {}\n}\n",
+        )
+        .unwrap();
 
         let violations = scan_file(&path);
-        assert!(violations.is_empty(), "checker should not flag mentions inside a test module");
+        assert!(
+            violations.is_empty(),
+            "checker should not flag mentions inside a test module"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn the_checker_flags_a_mutating_http_verb_outside_the_allowed_file() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-audit-selftest-verb-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-audit-selftest-verb-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("fixture.rs");
         std::fs::write(&path, "let r = ureq::put(\"http://example.com\");\n").unwrap();
@@ -193,14 +238,24 @@ mod tests {
 
     #[test]
     fn the_checker_allows_post_specifically_in_the_openai_file() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-audit-selftest-openai-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-audit-selftest-openai-{}",
+            std::process::id()
+        ));
         let nested = dir.join("smart-hedge-model-advisor").join("src");
         std::fs::create_dir_all(&nested).unwrap();
         let path = nested.join("openai.rs");
-        std::fs::write(&path, "let r = ureq::post(\"https://api.openai.com/v1/responses\");\n").unwrap();
+        std::fs::write(
+            &path,
+            "let r = ureq::post(\"https://api.openai.com/v1/responses\");\n",
+        )
+        .unwrap();
 
         let violations = scan_file(&path);
-        assert!(violations.is_empty(), "expected no violations for the allowed OpenAI POST file, got {violations:?}");
+        assert!(
+            violations.is_empty(),
+            "expected no violations for the allowed OpenAI POST file, got {violations:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

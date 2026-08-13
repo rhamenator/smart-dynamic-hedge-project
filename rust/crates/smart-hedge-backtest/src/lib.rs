@@ -32,7 +32,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use smart_hedge_config::LoadedConfig;
 use smart_hedge_data::SyntheticProvider;
-use smart_hedge_engine::{resolve_contract, resolved_strike, ContractOverrides, EngineError};
+use smart_hedge_engine::{ContractOverrides, EngineError, resolve_contract, resolved_strike};
 use smart_hedge_model_advisor::{Advisor, HeuristicAdvisor};
 use smart_hedge_models::TimestampUtc;
 
@@ -93,26 +93,53 @@ pub fn run_backtest(
         .map(|c| c.days_to_expiry)
         .ok_or_else(|| EngineError::UnknownSymbol(symbol.clone()))?;
 
-    let mut running_current_shares = loaded.config.contracts.get(&symbol).map(|c| c.current_shares).unwrap_or(0.0);
+    let mut running_current_shares = loaded
+        .config
+        .contracts
+        .get(&symbol)
+        .map(|c| c.current_shares)
+        .unwrap_or(0.0);
     let mut days = Vec::with_capacity(config.num_days as usize);
     let mut total_turnover = 0.0;
     let mut trading_days = 0usize;
 
     for day_index in 0..config.num_days {
-        let now = TimestampUtc::from_unix(config.start.unix_seconds() + i64::from(day_index) * SECONDS_PER_DAY, 0);
+        let now = TimestampUtc::from_unix(
+            config.start.unix_seconds() + i64::from(day_index) * SECONDS_PER_DAY,
+            0,
+        );
         let snapshot = provider.snapshot_at(&symbol, now);
         let midpoint = snapshot.quote.midpoint();
 
         let remaining_days = (initial_days_to_expiry - f64::from(day_index)).max(0.0);
-        let overrides =
-            ContractOverrides { days_to_expiry: Some(remaining_days), current_shares: Some(running_current_shares), ..Default::default() };
+        let overrides = ContractOverrides {
+            days_to_expiry: Some(remaining_days),
+            current_shares: Some(running_current_shares),
+            ..Default::default()
+        };
         let contract = resolve_contract(&loaded.config, &symbol, &overrides, midpoint, now)?;
         let strike = resolved_strike(&contract);
 
         let features = smart_hedge_features::build_features(&snapshot, &loaded.config.features);
-        let core = smart_hedge_core_bridge::run_core(loaded, project_root, cpp_source, &contract, midpoint, strike)?;
-        let assessment = advisor.assess(&snapshot, &features, &core, &contract).expect("HeuristicAdvisor::assess is infallible");
-        let policy = smart_hedge_policy::evaluate_policy(&loaded.config, &snapshot, &features, &core, &assessment, now);
+        let core = smart_hedge_core_bridge::run_core(
+            loaded,
+            project_root,
+            cpp_source,
+            &contract,
+            midpoint,
+            strike,
+        )?;
+        let assessment = advisor
+            .assess(&snapshot, &features, &core, &contract)
+            .expect("HeuristicAdvisor::assess is infallible");
+        let policy = smart_hedge_policy::evaluate_policy(
+            &loaded.config,
+            &snapshot,
+            &features,
+            &core,
+            &assessment,
+            now,
+        );
 
         let trade_shares = policy.paper_trade_preview_shares;
         total_turnover += trade_shares.abs();
@@ -136,7 +163,13 @@ pub fn run_backtest(
         });
     }
 
-    Ok(BacktestReport { symbol, days, total_turnover_shares: total_turnover, trading_days, final_current_shares: running_current_shares })
+    Ok(BacktestReport {
+        symbol,
+        days,
+        total_turnover_shares: total_turnover,
+        trading_days,
+        final_current_shares: running_current_shares,
+    })
 }
 
 #[cfg(test)]
@@ -145,7 +178,12 @@ mod tests {
     use smart_hedge_config::EnvOverrides;
 
     fn loaded_config() -> LoadedConfig {
-        smart_hedge_config::load_config(None, &EnvOverrides::default(), std::path::Path::new("/root")).unwrap()
+        smart_hedge_config::load_config(
+            None,
+            &EnvOverrides::default(),
+            std::path::Path::new("/root"),
+        )
+        .unwrap()
     }
 
     fn nonexistent_cpp() -> std::path::PathBuf {
@@ -155,7 +193,11 @@ mod tests {
     #[test]
     fn unknown_symbol_is_rejected_before_running_any_day() {
         let loaded = loaded_config();
-        let config = BacktestConfig { symbol: "NOPE".to_string(), num_days: 5, start: TimestampUtc::parse_flexible("2026-01-01T00:00:00Z").unwrap() };
+        let config = BacktestConfig {
+            symbol: "NOPE".to_string(),
+            num_days: 5,
+            start: TimestampUtc::parse_flexible("2026-01-01T00:00:00Z").unwrap(),
+        };
         let result = run_backtest(&loaded, Path::new("/root"), &nonexistent_cpp(), &config);
         assert!(matches!(result, Err(EngineError::UnknownSymbol(_))));
     }
@@ -163,10 +205,15 @@ mod tests {
     #[test]
     fn zero_days_produces_an_empty_but_valid_report() {
         let loaded = loaded_config();
-        let config = BacktestConfig { symbol: "SPY".to_string(), num_days: 0, start: TimestampUtc::parse_flexible("2026-01-01T00:00:00Z").unwrap() };
+        let config = BacktestConfig {
+            symbol: "SPY".to_string(),
+            num_days: 0,
+            start: TimestampUtc::parse_flexible("2026-01-01T00:00:00Z").unwrap(),
+        };
         // No C++ core needed at all when there are zero days to run --
         // this should succeed even with a nonexistent cpp_source/binary.
-        let report = run_backtest(&loaded, Path::new("/root"), &nonexistent_cpp(), &config).unwrap();
+        let report =
+            run_backtest(&loaded, Path::new("/root"), &nonexistent_cpp(), &config).unwrap();
         assert!(report.days.is_empty());
         assert_eq!(report.trading_days, 0);
         assert_eq!(report.total_turnover_shares, 0.0);
@@ -174,7 +221,14 @@ mod tests {
 
     fn find_repo_root() -> std::path::PathBuf {
         // rust/crates/smart-hedge-backtest -> repo root is 3 levels up.
-        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf()
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf()
     }
 
     /// Real integration test against the real C++ binary, same
@@ -197,7 +251,11 @@ mod tests {
         }
 
         let loaded = loaded_config();
-        let config = BacktestConfig { symbol: "SPY".to_string(), num_days: 10, start: TimestampUtc::parse_flexible("2026-01-01T00:00:00Z").unwrap() };
+        let config = BacktestConfig {
+            symbol: "SPY".to_string(),
+            num_days: 10,
+            start: TimestampUtc::parse_flexible("2026-01-01T00:00:00Z").unwrap(),
+        };
         let report = run_backtest(&loaded, &root, &cpp_source, &config).unwrap();
 
         assert_eq!(report.days.len(), 10);
@@ -221,9 +279,15 @@ mod tests {
         // on day N+1 -- the whole point of a point-in-time backtest, not
         // a series of independent, unrelated single-day previews.
         for window in report.days.windows(2) {
-            assert_eq!(window[0].current_shares_after, window[1].current_shares_before);
+            assert_eq!(
+                window[0].current_shares_after,
+                window[1].current_shares_before
+            );
         }
-        assert_eq!(report.days.last().unwrap().current_shares_after, report.final_current_shares);
+        assert_eq!(
+            report.days.last().unwrap().current_shares_after,
+            report.final_current_shares
+        );
 
         // Every day produced a finite spot price and a real policy action.
         for day in &report.days {

@@ -17,8 +17,12 @@ use std::net::{TcpListener, TcpStream};
 /// The thread is never explicitly stopped — it lives for the rest of the
 /// test process, same as the dashboard's own integration-test servers.
 pub fn start(routes: Vec<(&'static str, (u16, &'static str, String))>) -> u16 {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("binding an ephemeral local port should never fail");
-    let port = listener.local_addr().expect("a bound listener always has a local address").port();
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .expect("binding an ephemeral local port should never fail");
+    let port = listener
+        .local_addr()
+        .expect("a bound listener always has a local address")
+        .port();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             handle_one(stream, &routes);
@@ -28,7 +32,11 @@ pub fn start(routes: Vec<(&'static str, (u16, &'static str, String))>) -> u16 {
 }
 
 fn handle_one(mut stream: TcpStream, routes: &[(&'static str, (u16, &'static str, String))]) {
-    let mut reader = BufReader::new(stream.try_clone().expect("cloning a TCP stream handle should never fail"));
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .expect("cloning a TCP stream handle should never fail"),
+    );
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
         return;

@@ -1,7 +1,10 @@
 use std::collections::BTreeSet;
 
 use smart_hedge_config::Config;
-use smart_hedge_models::{AppliedLimits, CoreResponse, FeatureSet, MarketSnapshot, ModelAssessment, PolicyDecision, TimestampUtc};
+use smart_hedge_models::{
+    AppliedLimits, CoreResponse, FeatureSet, MarketSnapshot, ModelAssessment, PolicyDecision,
+    TimestampUtc,
+};
 
 use crate::rounding::round_half_to_even;
 
@@ -84,7 +87,8 @@ pub fn evaluate_policy(
         warnings.push(format!("missing_features:{}", features.missing.join(",")));
     }
 
-    let allowed_evidence: BTreeSet<&str> = features.evidence_ids.iter().map(String::as_str).collect();
+    let allowed_evidence: BTreeSet<&str> =
+        features.evidence_ids.iter().map(String::as_str).collect();
     let mut unknown_citations: Vec<&str> = assessment
         .evidence_ids
         .iter()
@@ -111,7 +115,10 @@ pub fn evaluate_policy(
     let current = core.inputs.current_shares;
     let raw_trade = target - current;
     let base_band = core.inputs.base_no_trade_band_shares;
-    if ![target, current, raw_trade, base_band].iter().all(|v| v.is_finite()) {
+    if ![target, current, raw_trade, base_band]
+        .iter()
+        .all(|v| v.is_finite())
+    {
         blockers.push("NONFINITE_CORE_VALUE".to_string());
     }
 

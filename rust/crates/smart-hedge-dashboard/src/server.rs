@@ -8,7 +8,7 @@ use smart_hedge_engine::{EngineError, SmartHedgeEngine};
 
 use crate::cache::Cache;
 use crate::http::read_request;
-use crate::routes::{handle, AppState};
+use crate::routes::{AppState, handle};
 
 #[derive(Debug)]
 pub enum DashboardError {
@@ -41,10 +41,17 @@ impl From<io::Error> for DashboardError {
 
 /// Port of `dashboard.create_app`'s setup (minus the FastAPI/uvicorn
 /// framework itself): builds the engine and the recommendation cache.
-pub fn build_state(loaded: LoadedConfig, project_root: PathBuf, cpp_source: PathBuf) -> Result<AppState, DashboardError> {
+pub fn build_state(
+    loaded: LoadedConfig,
+    project_root: PathBuf,
+    cpp_source: PathBuf,
+) -> Result<AppState, DashboardError> {
     let cache_seconds = loaded.config.dashboard.cache_seconds;
     let engine = SmartHedgeEngine::new(loaded, project_root, cpp_source)?;
-    Ok(AppState { engine, cache: Cache::new(cache_seconds) })
+    Ok(AppState {
+        engine,
+        cache: Cache::new(cache_seconds),
+    })
 }
 
 pub fn bind(host: &str, port: u16) -> io::Result<TcpListener> {
@@ -55,10 +62,22 @@ fn handle_connection(state: &AppState, stream: TcpStream) {
     match read_request(&stream) {
         Ok(req) => {
             let response = handle(state, &req);
-            let _ = crate::http::write_response(&stream, response.status, response.reason, response.content_type, &response.body);
+            let _ = crate::http::write_response(
+                &stream,
+                response.status,
+                response.reason,
+                response.content_type,
+                &response.body,
+            );
         }
         Err(_) => {
-            let _ = crate::http::write_response(&stream, 400, "Bad Request", "text/plain; charset=utf-8", b"malformed request");
+            let _ = crate::http::write_response(
+                &stream,
+                400,
+                "Bad Request",
+                "text/plain; charset=utf-8",
+                b"malformed request",
+            );
         }
     }
 }
@@ -85,8 +104,11 @@ pub fn serve(
     host_override: Option<&str>,
     port_override: Option<u16>,
 ) -> Result<(), DashboardError> {
-    let host = host_override.map(str::to_string).unwrap_or_else(|| loaded.config.dashboard.host.clone());
-    let port = port_override.unwrap_or_else(|| loaded.config.dashboard.port.clamp(1, u16::MAX as i64) as u16);
+    let host = host_override
+        .map(str::to_string)
+        .unwrap_or_else(|| loaded.config.dashboard.host.clone());
+    let port = port_override
+        .unwrap_or_else(|| loaded.config.dashboard.port.clamp(1, u16::MAX as i64) as u16);
     let state = build_state(loaded, project_root, cpp_source)?;
     let listener = bind(&host, port)?;
     // Query the listener for the actually-bound port rather than echoing

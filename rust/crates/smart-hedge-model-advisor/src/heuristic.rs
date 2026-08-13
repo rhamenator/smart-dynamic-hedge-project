@@ -35,14 +35,22 @@ impl Advisor for HeuristicAdvisor {
         let implied = contract.implied_volatility;
         let trend = feature_f64(features, "trend_score").unwrap_or(0.0);
         let spread = feature_f64(features, "spread_bps").unwrap_or(0.0);
-        let event_risk = matches!(features.values.get("event_risk_flag"), Some(serde_json::Value::Bool(true)));
+        let event_risk = matches!(
+            features.values.get("event_risk_flag"),
+            Some(serde_json::Value::Bool(true))
+        );
 
         let mut risks: Vec<String> = Vec::new();
         let (regime, band, mut urgency): (&str, f64, f64) = if spread > 35.0 {
-            risks.push("The observed spread is wide; a frequent hedge would be cost-sensitive.".to_string());
+            risks.push(
+                "The observed spread is wide; a frequent hedge would be cost-sensitive."
+                    .to_string(),
+            );
             ("illiquid", 2.0, 0.25)
         } else if event_risk {
-            risks.push("An event flag raises gap risk that stock delta hedging cannot remove.".to_string());
+            risks.push(
+                "An event flag raises gap risk that stock delta hedging cannot remove.".to_string(),
+            );
             ("jump_risk", 0.75, 0.90)
         } else if rv.is_some_and(|r| r > implied * 1.25) {
             risks.push(
@@ -51,10 +59,14 @@ impl Advisor for HeuristicAdvisor {
             );
             ("volatile", 0.70, 0.80)
         } else if trend > 1.25 {
-            risks.push("Short-horizon return is large relative to estimated volatility.".to_string());
+            risks.push(
+                "Short-horizon return is large relative to estimated volatility.".to_string(),
+            );
             ("trend_up", 0.85, 0.65)
         } else if trend < -1.25 {
-            risks.push("Short-horizon decline is large relative to estimated volatility.".to_string());
+            risks.push(
+                "Short-horizon decline is large relative to estimated volatility.".to_string(),
+            );
             ("trend_down", 0.85, 0.65)
         } else if rv.is_some_and(|r| r < implied * 0.70) {
             ("calm", 1.35, 0.30)
@@ -66,7 +78,8 @@ impl Advisor for HeuristicAdvisor {
         let gamma = core.greeks.gamma.abs();
         let gamma_scale = (gamma * snapshot.quote.midpoint() * 5.0).min(1.0);
         urgency = urgency.max(gamma_scale).min(1.0);
-        let confidence = (features.data_quality * if rv.is_some() { 0.90 } else { 0.65 }).clamp(0.05, 0.95);
+        let confidence =
+            (features.data_quality * if rv.is_some() { 0.90 } else { 0.65 }).clamp(0.05, 0.95);
 
         Ok(ModelAssessment {
             advisor_kind: "heuristic".to_string(),
@@ -100,7 +113,9 @@ impl Advisor for HeuristicAdvisor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smart_hedge_models::{Bar, CoreGreeks, CoreHedge, CoreInputs, CorePricing, CoreRisk, EvidenceItem, Quote};
+    use smart_hedge_models::{
+        Bar, CoreGreeks, CoreHedge, CoreInputs, CorePricing, CoreRisk, EvidenceItem, Quote,
+    };
     use std::collections::BTreeMap;
 
     fn base_contract() -> ContractConfig {
@@ -138,7 +153,11 @@ mod tests {
                 tree_steps: 600,
                 base_no_trade_band_shares: 2.0,
             },
-            pricing: CorePricing { model_price: 3.5, european_price: 3.4, early_exercise_premium: 0.1 },
+            pricing: CorePricing {
+                model_price: 3.5,
+                european_price: 3.4,
+                early_exercise_premium: 0.1,
+            },
             greeks: CoreGreeks {
                 delta: -0.45,
                 gamma,
@@ -154,14 +173,24 @@ mod tests {
                 action: "paper_rebalance_preview".to_string(),
                 stock_notional: 4500.0,
             },
-            risk: CoreRisk { position_gamma_pnl_for_1pct_move: 1.0 },
+            risk: CoreRisk {
+                position_gamma_pnl_for_1pct_move: 1.0,
+            },
         }
     }
 
     fn base_snapshot() -> MarketSnapshot {
         MarketSnapshot::new(
             "TEST",
-            Quote::new("TEST", 99.99, 100.01, 100.0, "2026-07-19T00:00:00Z", "test", "open"),
+            Quote::new(
+                "TEST",
+                99.99,
+                100.01,
+                100.0,
+                "2026-07-19T00:00:00Z",
+                "test",
+                "open",
+            ),
             vec![Bar {
                 timestamp: "2026-07-19T00:00:00Z".to_string(),
                 open: 100.0,
@@ -175,7 +204,13 @@ mod tests {
     }
 
     fn features_with(values: BTreeMap<String, serde_json::Value>, data_quality: f64) -> FeatureSet {
-        FeatureSet { values, missing: vec![], warnings: vec![], data_quality, evidence_ids: vec![] }
+        FeatureSet {
+            values,
+            missing: vec![],
+            warnings: vec![],
+            data_quality,
+            evidence_ids: vec![],
+        }
     }
 
     #[test]
@@ -183,8 +218,14 @@ mod tests {
         let mut values = BTreeMap::new();
         values.insert("spread_bps".to_string(), serde_json::json!(50.0));
         let features = features_with(values, 1.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         assert_eq!(result.regime, "illiquid");
         assert_eq!(result.band_multiplier, 2.0);
     }
@@ -194,8 +235,14 @@ mod tests {
         let mut values = BTreeMap::new();
         values.insert("event_risk_flag".to_string(), serde_json::json!(true));
         let features = features_with(values, 1.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         assert_eq!(result.regime, "jump_risk");
     }
 
@@ -204,8 +251,14 @@ mod tests {
         let mut values = BTreeMap::new();
         values.insert("realized_volatility".to_string(), serde_json::json!(0.30)); // > 0.20 * 1.25
         let features = features_with(values, 1.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         assert_eq!(result.regime, "volatile");
     }
 
@@ -214,16 +267,28 @@ mod tests {
         let mut values = BTreeMap::new();
         values.insert("realized_volatility".to_string(), serde_json::json!(0.10)); // < 0.20 * 0.70
         let features = features_with(values, 1.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         assert_eq!(result.regime, "calm");
     }
 
     #[test]
     fn no_strong_signal_produces_uncertain_regime_with_a_risk_note() {
         let features = features_with(BTreeMap::new(), 1.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         assert_eq!(result.regime, "uncertain");
         assert!(!result.risks.is_empty());
     }
@@ -231,9 +296,18 @@ mod tests {
     #[test]
     fn missing_volatility_requests_more_bars() {
         let features = features_with(BTreeMap::new(), 1.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
-        assert_eq!(result.data_requests, vec!["More recent bars for realized volatility".to_string()]);
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
+        assert_eq!(
+            result.data_requests,
+            vec!["More recent bars for realized volatility".to_string()]
+        );
     }
 
     #[test]
@@ -244,8 +318,14 @@ mod tests {
         values.insert("ewma_volatility".to_string(), serde_json::json!(0.0));
         values.insert("realized_volatility".to_string(), serde_json::json!(0.30));
         let features = features_with(values, 1.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         // 0.30 > 0.20 * 1.25 = 0.25, so this only classifies as "volatile"
         // if the fallback to realized_volatility actually happened.
         assert_eq!(result.regime, "volatile");
@@ -254,10 +334,22 @@ mod tests {
     #[test]
     fn high_gamma_raises_urgency_regardless_of_regime() {
         let features = features_with(BTreeMap::new(), 1.0);
-        let low_gamma =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
-        let high_gamma =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.5), &base_contract()).unwrap();
+        let low_gamma = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
+        let high_gamma = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.5),
+                &base_contract(),
+            )
+            .unwrap();
         assert!(high_gamma.hedge_urgency >= low_gamma.hedge_urgency);
         assert!(high_gamma.hedge_urgency <= 1.0);
     }
@@ -265,8 +357,14 @@ mod tests {
     #[test]
     fn confidence_is_bounded_to_0_05_and_0_95() {
         let features = features_with(BTreeMap::new(), 0.0);
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         assert!(result.confidence >= 0.05 && result.confidence <= 0.95);
     }
 
@@ -274,8 +372,14 @@ mod tests {
     fn evidence_ids_are_capped_at_eight() {
         let mut features = features_with(BTreeMap::new(), 1.0);
         features.evidence_ids = (0..20).map(|i| format!("e{i}")).collect();
-        let result =
-            HeuristicAdvisor.assess(&base_snapshot(), &features, &base_core(0.0), &base_contract()).unwrap();
+        let result = HeuristicAdvisor
+            .assess(
+                &base_snapshot(),
+                &features,
+                &base_core(0.0),
+                &base_contract(),
+            )
+            .unwrap();
         assert_eq!(result.evidence_ids.len(), 8);
     }
 }

@@ -23,7 +23,9 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 /// `"3f4b3c9a-9b7e-4a3d-8f2f-2f6b1c9a9b7e"`.
 pub fn new_unique_id() -> String {
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let stack_marker = 0u8;
     let stack_addr = std::ptr::addr_of!(stack_marker) as usize;
 
@@ -43,7 +45,22 @@ pub fn new_unique_id() -> String {
 
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
+        b[0],
+        b[1],
+        b[2],
+        b[3],
+        b[4],
+        b[5],
+        b[6],
+        b[7],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15]
     )
 }
 
@@ -55,7 +72,10 @@ mod tests {
     fn has_the_standard_8_4_4_4_12_hyphenated_shape() {
         let id = new_unique_id();
         let parts: Vec<&str> = id.split('-').collect();
-        assert_eq!(parts.iter().map(|p| p.len()).collect::<Vec<_>>(), vec![8, 4, 4, 4, 12]);
+        assert_eq!(
+            parts.iter().map(|p| p.len()).collect::<Vec<_>>(),
+            vec![8, 4, 4, 4, 12]
+        );
         assert!(id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
     }
 
@@ -72,6 +92,10 @@ mod tests {
     fn consecutive_calls_produce_distinct_ids() {
         let ids: Vec<String> = (0..1000).map(|_| new_unique_id()).collect();
         let unique: std::collections::HashSet<&String> = ids.iter().collect();
-        assert_eq!(unique.len(), ids.len(), "expected all 1000 IDs to be distinct");
+        assert_eq!(
+            unique.len(),
+            ids.len(),
+            "expected all 1000 IDs to be distinct"
+        );
     }
 }

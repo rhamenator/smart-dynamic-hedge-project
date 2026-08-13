@@ -23,8 +23,12 @@ pub enum ModelUriError {
 impl fmt::Display for ModelUriError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ModelUriError::MissingSchemeSeparator(s) => write!(f, "model URI {s:?} is missing \"://\""),
-            ModelUriError::EmptyScheme(s) => write!(f, "model URI {s:?} has an empty scheme before \"://\""),
+            ModelUriError::MissingSchemeSeparator(s) => {
+                write!(f, "model URI {s:?} is missing \"://\"")
+            }
+            ModelUriError::EmptyScheme(s) => {
+                write!(f, "model URI {s:?} has an empty scheme before \"://\"")
+            }
         }
     }
 }
@@ -45,7 +49,10 @@ impl ModelUri {
         if scheme.is_empty() {
             return Err(ModelUriError::EmptyScheme(raw.to_string()));
         }
-        Ok(ModelUri { scheme: scheme.to_lowercase(), identifier: identifier.trim().to_string() })
+        Ok(ModelUri {
+            scheme: scheme.to_lowercase(),
+            identifier: identifier.trim().to_string(),
+        })
     }
 }
 

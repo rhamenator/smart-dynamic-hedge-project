@@ -23,8 +23,13 @@ pub struct TimestampUtc {
 
 impl TimestampUtc {
     pub fn now() -> Self {
-        let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-        TimestampUtc { secs: dur.as_secs() as i64, nanos: dur.subsec_nanos() }
+        let dur = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        TimestampUtc {
+            secs: dur.as_secs() as i64,
+            nanos: dur.subsec_nanos(),
+        }
     }
 
     /// Constructs an instant directly from seconds-since-epoch and a
@@ -32,7 +37,10 @@ impl TimestampUtc {
     /// `secs`.
     pub fn from_unix(secs: i64, nanos: u32) -> Self {
         let extra_secs = (nanos / 1_000_000_000) as i64;
-        TimestampUtc { secs: secs.wrapping_add(extra_secs), nanos: nanos % 1_000_000_000 }
+        TimestampUtc {
+            secs: secs.wrapping_add(extra_secs),
+            nanos: nanos % 1_000_000_000,
+        }
     }
 
     pub fn subsec_nanos(&self) -> u32 {
@@ -94,7 +102,10 @@ impl TimestampUtc {
             Some(digit(b0)? * 10 + digit(b1)?)
         }
 
-        let year = digit(bytes[0])? * 1000 + digit(bytes[1])? * 100 + digit(bytes[2])? * 10 + digit(bytes[3])?;
+        let year = digit(bytes[0])? * 1000
+            + digit(bytes[1])? * 100
+            + digit(bytes[2])? * 10
+            + digit(bytes[3])?;
         if bytes[4] != b'-' {
             return None;
         }
@@ -169,9 +180,14 @@ impl TimestampUtc {
         }
 
         let days = days_from_civil(year, month, day);
-        let local_secs = days.checked_mul(86_400)?.checked_add(hour * 3600 + minute * 60 + second)?;
+        let local_secs = days
+            .checked_mul(86_400)?
+            .checked_add(hour * 3600 + minute * 60 + second)?;
         let utc_secs = local_secs.checked_sub(offset_secs)?;
-        Some(TimestampUtc { secs: utc_secs, nanos })
+        Some(TimestampUtc {
+            secs: utc_secs,
+            nanos,
+        })
     }
 }
 
@@ -187,7 +203,11 @@ fn is_leap_year(y: i64) -> bool {
 
 fn last_day_of_month(y: i64, m: i64) -> i64 {
     const DAYS: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    if m == 2 && is_leap_year(y) { 29 } else { DAYS[(m - 1) as usize] }
+    if m == 2 && is_leap_year(y) {
+        29
+    } else {
+        DAYS[(m - 1) as usize]
+    }
 }
 
 /// Howard Hinnant's public-domain civil-calendar algorithm — see
@@ -241,7 +261,12 @@ mod tests {
     #[test]
     fn parses_z_suffix() {
         let t = TimestampUtc::parse_flexible("2026-07-19T14:30:00Z").unwrap();
-        assert_eq!(t.unix_seconds(), TimestampUtc::parse_flexible("2026-07-19T14:30:00+00:00").unwrap().unix_seconds());
+        assert_eq!(
+            t.unix_seconds(),
+            TimestampUtc::parse_flexible("2026-07-19T14:30:00+00:00")
+                .unwrap()
+                .unix_seconds()
+        );
     }
 
     #[test]
@@ -276,8 +301,17 @@ mod tests {
 
     #[test]
     fn rejects_malformed_input_without_panicking() {
-        for bad in ["", "not-a-timestamp", "2026-07-19", "2026-13-01T00:00:00Z", "2026-02-30T00:00:00Z"] {
-            assert!(TimestampUtc::parse_flexible(bad).is_none(), "expected None for {bad:?}");
+        for bad in [
+            "",
+            "not-a-timestamp",
+            "2026-07-19",
+            "2026-13-01T00:00:00Z",
+            "2026-02-30T00:00:00Z",
+        ] {
+            assert!(
+                TimestampUtc::parse_flexible(bad).is_none(),
+                "expected None for {bad:?}"
+            );
         }
     }
 

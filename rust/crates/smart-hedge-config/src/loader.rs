@@ -26,8 +26,12 @@ fn set_nested_string(root: &mut Value, path: &[&str], new_value: &str) {
         if !node.is_object() {
             *node = Value::Object(serde_json::Map::new());
         }
-        let map = node.as_object_mut().expect("just ensured this is an object");
-        node = map.entry(*key).or_insert(Value::Object(serde_json::Map::new()));
+        let map = node
+            .as_object_mut()
+            .expect("just ensured this is an object");
+        node = map
+            .entry(*key)
+            .or_insert(Value::Object(serde_json::Map::new()));
     }
     *node = Value::String(new_value.to_string());
 }
@@ -98,7 +102,11 @@ pub fn load_config(
         return Err(ConfigError::PolicyPaperOnlyRequired);
     }
 
-    Ok(LoadedConfig { config, config_dir, config_path })
+    Ok(LoadedConfig {
+        config,
+        config_dir,
+        config_path,
+    })
 }
 
 #[cfg(test)]
@@ -142,7 +150,10 @@ mod tests {
 
     #[test]
     fn model_registry_can_be_configured_with_named_uris() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-models-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-models-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
@@ -151,15 +162,29 @@ mod tests {
         )
         .unwrap();
 
-        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
-        assert_eq!(loaded.config.model.models.get("default"), Some(&"heuristic://default".to_string()));
-        assert_eq!(loaded.config.model.models.get("aggressive"), Some(&"openai://gpt-4.1".to_string()));
+        let loaded = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        )
+        .unwrap();
+        assert_eq!(
+            loaded.config.model.models.get("default"),
+            Some(&"heuristic://default".to_string())
+        );
+        assert_eq!(
+            loaded.config.model.models.get("aggressive"),
+            Some(&"openai://gpt-4.1".to_string())
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn a_brand_new_contract_symbol_gets_only_the_fields_it_specifies_plus_defaults() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-newcontract-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-newcontract-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         // "QQQ" does not exist in the built-in defaults (only "SPY" does),
@@ -173,7 +198,12 @@ mod tests {
         )
         .unwrap();
 
-        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
+        let loaded = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        )
+        .unwrap();
         assert_eq!(loaded.config.contracts.len(), 2); // SPY (default) + QQQ (new)
         let qqq = &loaded.config.contracts["QQQ"];
         assert_eq!(qqq.strike, StrikeSpec::Fixed(50.0));
@@ -193,7 +223,10 @@ mod tests {
     /// `smart-hedge-engine`.
     #[test]
     fn a_contract_symbol_with_only_an_expiry_date_needs_no_days_to_expiry() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-expiryonly-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-expiryonly-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
@@ -202,7 +235,12 @@ mod tests {
         )
         .unwrap();
 
-        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
+        let loaded = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        )
+        .unwrap();
         let qqq = &loaded.config.contracts["QQQ"];
         assert_eq!(qqq.expiry.as_deref(), Some("2026-12-19"));
         assert_eq!(qqq.days_to_expiry, 30.0); // config-layer default; engine.rs will override it
@@ -216,7 +254,10 @@ mod tests {
     /// input.
     #[test]
     fn atm_strike_literal_loads_successfully_case_insensitively() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-atmstrike-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-atmstrike-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
@@ -225,7 +266,12 @@ mod tests {
         )
         .unwrap();
 
-        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
+        let loaded = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        )
+        .unwrap();
         assert_eq!(loaded.config.contracts["QQQ"].strike, StrikeSpec::Atm);
 
         std::fs::remove_dir_all(&dir).ok();
@@ -233,14 +279,25 @@ mod tests {
 
     #[test]
     fn a_new_contract_symbol_missing_a_required_field_fails_fast_at_load_time() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-badcontract-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-badcontract-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         // Missing `implied_volatility`, which Python only discovers is
         // absent when that specific symbol is later priced.
-        std::fs::write(&config_path, r#"{"contracts": {"QQQ": {"strike": 50.0, "days_to_expiry": 14.0}}}"#).unwrap();
+        std::fs::write(
+            &config_path,
+            r#"{"contracts": {"QQQ": {"strike": 50.0, "days_to_expiry": 14.0}}}"#,
+        )
+        .unwrap();
 
-        let result = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root"));
+        let result = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        );
         assert!(matches!(result, Err(ConfigError::SchemaMismatch(_))));
 
         std::fs::remove_dir_all(&dir).ok();
@@ -248,12 +305,18 @@ mod tests {
 
     #[test]
     fn user_config_file_deep_merges_over_defaults() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("smart-hedge-config-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, r#"{"policy": {"max_spread_bps": 99.0}}"#).unwrap();
 
-        let loaded = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root")).unwrap();
+        let loaded = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        )
+        .unwrap();
         assert_eq!(loaded.config.policy.max_spread_bps, 99.0);
         // Untouched defaults must survive the merge.
         assert_eq!(loaded.config.policy.max_quote_age_seconds, 45.0);
@@ -265,12 +328,19 @@ mod tests {
 
     #[test]
     fn non_object_config_file_is_rejected() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-arr-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-arr-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, r#"[1, 2, 3]"#).unwrap();
 
-        let result = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root"));
+        let result = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        );
         assert!(matches!(result, Err(ConfigError::RootNotAnObject)));
 
         std::fs::remove_dir_all(&dir).ok();
@@ -278,12 +348,19 @@ mod tests {
 
     #[test]
     fn invalid_json_file_is_rejected() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-badjson-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-badjson-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, "{not valid json").unwrap();
 
-        let result = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root"));
+        let result = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        );
         assert!(matches!(result, Err(ConfigError::InvalidJson(_))));
 
         std::fs::remove_dir_all(&dir).ok();
@@ -301,12 +378,19 @@ mod tests {
 
     #[test]
     fn non_paper_mode_is_rejected() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-live-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-live-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, r#"{"mode": "live"}"#).unwrap();
 
-        let result = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root"));
+        let result = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        );
         assert!(matches!(result, Err(ConfigError::LiveModeNotSupported)));
 
         std::fs::remove_dir_all(&dir).ok();
@@ -314,12 +398,19 @@ mod tests {
 
     #[test]
     fn paper_only_false_is_rejected_even_if_mode_is_paper() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-notpaperonly-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-notpaperonly-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, r#"{"policy": {"paper_only": false}}"#).unwrap();
 
-        let result = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root"));
+        let result = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        );
         assert!(matches!(result, Err(ConfigError::PolicyPaperOnlyRequired)));
 
         std::fs::remove_dir_all(&dir).ok();
@@ -327,13 +418,24 @@ mod tests {
 
     #[test]
     fn schema_mismatch_is_reported_instead_of_silently_ignored() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-config-test-schema-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-config-test-schema-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         // `max_spread_bps` must be a number, not a string.
-        std::fs::write(&config_path, r#"{"policy": {"max_spread_bps": "not-a-number"}}"#).unwrap();
+        std::fs::write(
+            &config_path,
+            r#"{"policy": {"max_spread_bps": "not-a-number"}}"#,
+        )
+        .unwrap();
 
-        let result = load_config(Some(&config_path), &EnvOverrides::default(), Path::new("/root"));
+        let result = load_config(
+            Some(&config_path),
+            &EnvOverrides::default(),
+            Path::new("/root"),
+        );
         assert!(matches!(result, Err(ConfigError::SchemaMismatch(_))));
 
         std::fs::remove_dir_all(&dir).ok();

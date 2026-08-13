@@ -4,7 +4,7 @@ use serde_json::Value;
 use smart_hedge_config::LoadedConfig;
 use smart_hedge_models::{EvidenceItem, TimestampUtc};
 
-use crate::rss_xml::{extract_feed_entries, FeedEntry};
+use crate::rss_xml::{FeedEntry, extract_feed_entries};
 
 const USER_AGENT: &str = "smart-dynamic-hedge/0.2 research reader";
 const MAX_FEEDS: usize = 10;
@@ -23,7 +23,9 @@ fn netloc(url: &str) -> String {
         Some(i) => &url[i + 3..],
         None => url,
     };
-    let end = after_scheme.find(['/', '?', '#']).unwrap_or(after_scheme.len());
+    let end = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
     after_scheme[..end].to_string()
 }
 
@@ -49,11 +51,24 @@ fn error_evidence(feed_index: usize, url: &str, reason: &str) -> EvidenceItem {
 /// whitespace-only title ends up empty, not `"RSS item"`, matching
 /// Python's `(x or "RSS item").strip()`) — `description`/`published` are
 /// never trimmed, also matching Python.
-fn entry_evidence(feed_index: usize, item_index: usize, symbol: &str, url: &str, entry: &FeedEntry) -> EvidenceItem {
-    let chosen_title = if entry.title.is_empty() { "RSS item" } else { entry.title.as_str() };
+fn entry_evidence(
+    feed_index: usize,
+    item_index: usize,
+    symbol: &str,
+    url: &str,
+    entry: &FeedEntry,
+) -> EvidenceItem {
+    let chosen_title = if entry.title.is_empty() {
+        "RSS item"
+    } else {
+        entry.title.as_str()
+    };
     let title = chosen_title.trim();
-    let published =
-        if entry.published.is_empty() { TimestampUtc::now().to_iso_string() } else { entry.published.clone() };
+    let published = if entry.published.is_empty() {
+        TimestampUtc::now().to_iso_string()
+    } else {
+        entry.published.clone()
+    };
     let combined_title = format!("{symbol}: {title}");
     EvidenceItem {
         evidence_id: format!("rss-{feed_index}-{item_index}"),
@@ -69,7 +84,11 @@ fn entry_evidence(feed_index: usize, item_index: usize, symbol: &str, url: &str,
 }
 
 fn fetch_feed(url: &str, timeout: Duration) -> Result<String, String> {
-    let response = ureq::get(url).set("User-Agent", USER_AGENT).timeout(timeout).call().map_err(|e| e.to_string())?;
+    let response = ureq::get(url)
+        .set("User-Agent", USER_AGENT)
+        .timeout(timeout)
+        .call()
+        .map_err(|e| e.to_string())?;
     // Matches Python's `response.read(2_000_000)` cap — see `http_util`.
     // The highest-value place for this bound of the three: an RSS feed
     // URL is arbitrary operator configuration, not a fixed trusted host.
@@ -140,18 +159,34 @@ mod tests {
     }
 
     fn entry(title: &str, description: &str, published: &str) -> FeedEntry {
-        FeedEntry { title: title.to_string(), description: description.to_string(), published: published.to_string() }
+        FeedEntry {
+            title: title.to_string(),
+            description: description.to_string(),
+            published: published.to_string(),
+        }
     }
 
     #[test]
     fn entry_evidence_prefixes_the_title_with_the_symbol() {
-        let item = entry_evidence(0, 0, "SPY", "https://example.com/feed", &entry("Big News", "details", "2026-07-19"));
+        let item = entry_evidence(
+            0,
+            0,
+            "SPY",
+            "https://example.com/feed",
+            &entry("Big News", "details", "2026-07-19"),
+        );
         assert_eq!(item.title, "SPY: Big News");
     }
 
     #[test]
     fn entry_evidence_defaults_a_missing_title_to_rss_item() {
-        let item = entry_evidence(0, 0, "SPY", "https://example.com/feed", &entry("", "details", "2026-07-19"));
+        let item = entry_evidence(
+            0,
+            0,
+            "SPY",
+            "https://example.com/feed",
+            &entry("", "details", "2026-07-19"),
+        );
         assert_eq!(item.title, "SPY: RSS item");
     }
 
@@ -160,13 +195,25 @@ mod tests {
     /// empty — the `"RSS item"` fallback never gets a chance to apply.
     #[test]
     fn entry_evidence_whitespace_only_title_ends_up_empty_not_rss_item() {
-        let item = entry_evidence(0, 0, "SPY", "https://example.com/feed", &entry("   ", "details", "2026-07-19"));
+        let item = entry_evidence(
+            0,
+            0,
+            "SPY",
+            "https://example.com/feed",
+            &entry("   ", "details", "2026-07-19"),
+        );
         assert_eq!(item.title, "SPY: ");
     }
 
     #[test]
     fn entry_evidence_defaults_a_missing_published_date_to_now() {
-        let item = entry_evidence(0, 0, "SPY", "https://example.com/feed", &entry("t", "d", ""));
+        let item = entry_evidence(
+            0,
+            0,
+            "SPY",
+            "https://example.com/feed",
+            &entry("t", "d", ""),
+        );
         assert!(!item.timestamp.is_empty());
         assert_ne!(item.timestamp, "");
     }
@@ -175,14 +222,26 @@ mod tests {
     fn entry_evidence_truncates_title_to_240_and_text_to_5000_chars() {
         let long_title = "x".repeat(500);
         let long_desc = "y".repeat(6000);
-        let item = entry_evidence(0, 0, "SPY", "https://example.com/feed", &entry(&long_title, &long_desc, "t"));
+        let item = entry_evidence(
+            0,
+            0,
+            "SPY",
+            "https://example.com/feed",
+            &entry(&long_title, &long_desc, "t"),
+        );
         assert_eq!(item.title.chars().count(), 240);
         assert_eq!(item.text.chars().count(), 5000);
     }
 
     #[test]
     fn entry_evidence_marks_untrusted_text_true_and_lower_quality() {
-        let item = entry_evidence(0, 0, "SPY", "https://example.com/feed", &entry("t", "d", "2026-07-19"));
+        let item = entry_evidence(
+            0,
+            0,
+            "SPY",
+            "https://example.com/feed",
+            &entry("t", "d", "2026-07-19"),
+        );
         assert!(item.untrusted_text);
         assert_eq!(item.quality, 0.45);
     }
@@ -197,7 +256,9 @@ mod tests {
 
     #[test]
     fn feed_list_is_capped_at_ten() {
-        let feeds: Vec<String> = (0..15).map(|i| format!("https://example.com/{i}")).collect();
+        let feeds: Vec<String> = (0..15)
+            .map(|i| format!("https://example.com/{i}"))
+            .collect();
         assert_eq!(capped_feeds(&feeds).len(), MAX_FEEDS);
     }
 
@@ -223,10 +284,14 @@ mod tests {
                     <pubDate>Sun, 19 Jul 2026 20:00:00 GMT</pubDate>
                 </item>
             </channel></rss>"#;
-        let port = crate::mock_http_test_support::start(vec![("/feed.xml", (200, "application/rss+xml", feed_xml.to_string()))]);
+        let port = crate::mock_http_test_support::start(vec![(
+            "/feed.xml",
+            (200, "application/rss+xml", feed_xml.to_string()),
+        )]);
         let feed_url = format!("http://127.0.0.1:{port}/feed.xml");
 
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-e2e-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("smart-hedge-data-rss-e2e-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
@@ -234,13 +299,21 @@ mod tests {
             format!(r#"{{"provider": {{"rss": {{"enabled": true, "feeds": ["{feed_url}"], "max_items_per_feed": 3}}}}}}"#),
         )
         .unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&config_path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        let loaded = smart_hedge_config::load_config(
+            Some(&config_path),
+            &smart_hedge_config::EnvOverrides::default(),
+            &dir,
+        )
+        .unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
         let evidence = load_rss_evidence(&loaded, "SPY");
         assert_eq!(evidence.len(), 1);
         assert_eq!(evidence[0].title, "SPY: Fed holds rates steady");
-        assert_eq!(evidence[0].text, "The Federal Reserve left rates unchanged.");
+        assert_eq!(
+            evidence[0].text,
+            "The Federal Reserve left rates unchanged."
+        );
         assert!(evidence[0].untrusted_text);
     }
 
@@ -249,10 +322,16 @@ mod tests {
     /// survives a real transport round trip.
     #[test]
     fn load_rss_evidence_reports_a_real_http_error_as_evidence() {
-        let port = crate::mock_http_test_support::start(vec![("/feed.xml", (404, "text/plain", "gone".to_string()))]);
+        let port = crate::mock_http_test_support::start(vec![(
+            "/feed.xml",
+            (404, "text/plain", "gone".to_string()),
+        )]);
         let feed_url = format!("http://127.0.0.1:{port}/feed.xml");
 
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-e2e-err-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-rss-e2e-err-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
@@ -260,7 +339,12 @@ mod tests {
             format!(r#"{{"provider": {{"rss": {{"enabled": true, "feeds": ["{feed_url}"]}}}}}}"#),
         )
         .unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&config_path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        let loaded = smart_hedge_config::load_config(
+            Some(&config_path),
+            &smart_hedge_config::EnvOverrides::default(),
+            &dir,
+        )
+        .unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
         let evidence = load_rss_evidence(&loaded, "SPY");
@@ -270,10 +354,16 @@ mod tests {
     }
 
     fn evidence_from_feed_body(body: String) -> Vec<EvidenceItem> {
-        let port = crate::mock_http_test_support::start(vec![("/feed.xml", (200, "application/rss+xml", body))]);
+        let port = crate::mock_http_test_support::start(vec![(
+            "/feed.xml",
+            (200, "application/rss+xml", body),
+        )]);
         let feed_url = format!("http://127.0.0.1:{port}/feed.xml");
 
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-adversarial-{}-{port}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-rss-adversarial-{}-{port}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
@@ -281,7 +371,12 @@ mod tests {
             format!(r#"{{"provider": {{"rss": {{"enabled": true, "feeds": ["{feed_url}"], "max_items_per_feed": 5}}}}}}"#),
         )
         .unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&config_path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        let loaded = smart_hedge_config::load_config(
+            Some(&config_path),
+            &smart_hedge_config::EnvOverrides::default(),
+            &dir,
+        )
+        .unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
         load_rss_evidence(&loaded, "SPY")
@@ -317,7 +412,9 @@ mod tests {
         ];
 
         for (name, body) in cases {
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| evidence_from_feed_body(body)));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                evidence_from_feed_body(body)
+            }));
             assert!(outcome.is_ok(), "case {name:?} PANICKED");
         }
     }
@@ -333,8 +430,8 @@ mod tests {
     #[test]
     fn load_rss_evidence_never_triggers_an_xxe_driven_ssrf_request() {
         use std::net::TcpListener;
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         let canary_hit = Arc::new(AtomicBool::new(false));
         let canary_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -357,19 +454,36 @@ mod tests {
         // generous sleep gives a real SSRF attempt every chance to have
         // happened before we check.
         std::thread::sleep(std::time::Duration::from_millis(100));
-        assert!(!canary_hit.load(Ordering::SeqCst), "the RSS parser must never resolve/fetch an external DTD entity");
+        assert!(
+            !canary_hit.load(Ordering::SeqCst),
+            "the RSS parser must never resolve/fetch an external DTD entity"
+        );
         assert_eq!(evidence.len(), 1);
-        assert_eq!(evidence[0].title, "SPY: &xxe;", "the literal entity reference should pass through unresolved");
+        assert_eq!(
+            evidence[0].title, "SPY: &xxe;",
+            "the literal entity reference should pass through unresolved"
+        );
     }
 
     #[test]
     fn disabled_rss_returns_no_evidence_without_any_network_call() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-rss-disabled-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-rss-disabled-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
-        std::fs::write(&path, r#"{"provider": {"rss": {"enabled": false, "feeds": ["https://example.com/feed"]}}}"#).unwrap();
-        let loaded =
-            smart_hedge_config::load_config(Some(&path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"provider": {"rss": {"enabled": false, "feeds": ["https://example.com/feed"]}}}"#,
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(
+            Some(&path),
+            &smart_hedge_config::EnvOverrides::default(),
+            &dir,
+        )
+        .unwrap();
         assert!(load_rss_evidence(&loaded, "SPY").is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }

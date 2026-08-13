@@ -30,16 +30,25 @@ pub enum EngineError {
 impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownSymbol(s) => write!(f, "no contract configured for {s}; add contracts.{s} to the config"),
+            Self::UnknownSymbol(s) => write!(
+                f,
+                "no contract configured for {s}; add contracts.{s} to the config"
+            ),
             Self::InvalidOptionType(s) => write!(f, "option_type must be call or put, got {s}"),
-            Self::InvalidExerciseStyle(s) => write!(f, "exercise_style must be american or european, got {s}"),
+            Self::InvalidExerciseStyle(s) => {
+                write!(f, "exercise_style must be american or european, got {s}")
+            }
             Self::InvalidStrike(s) => write!(f, "strike must be positive and finite, got {s}"),
             Self::InvalidExpiryDate(s) => write!(f, "invalid expiry date: {s}"),
             Self::Core(e) => write!(f, "{e}"),
             Self::Data(e) => write!(f, "{e}"),
             Self::Store(e) => write!(f, "{e}"),
-            Self::AdvisorFailedAndFallbackDisabled(e) => write!(f, "adviser failed and fallback is disabled: {e}"),
-            Self::AdvisorConstructionFailed(e) => write!(f, "failed to construct the configured adviser: {e}"),
+            Self::AdvisorFailedAndFallbackDisabled(e) => {
+                write!(f, "adviser failed and fallback is disabled: {e}")
+            }
+            Self::AdvisorConstructionFailed(e) => {
+                write!(f, "failed to construct the configured adviser: {e}")
+            }
             Self::DecisionNotFound(id) => write!(f, "decision not found: {id}"),
             Self::UnknownProviderKind(k) => write!(f, "unknown provider kind: {k}"),
             Self::UnknownAdvisorKind(k) => write!(f, "unknown model adviser kind: {k}"),

@@ -13,6 +13,10 @@ use std::io::Read;
 /// to 1000-character summaries and several list fields).
 pub fn read_capped_body(response: ureq::Response, max_bytes: usize) -> Result<String, String> {
     let mut buf = Vec::new();
-    response.into_reader().take(max_bytes as u64).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    response
+        .into_reader()
+        .take(max_bytes as u64)
+        .read_to_end(&mut buf)
+        .map_err(|e| e.to_string())?;
     String::from_utf8(buf).map_err(|e| e.to_string())
 }

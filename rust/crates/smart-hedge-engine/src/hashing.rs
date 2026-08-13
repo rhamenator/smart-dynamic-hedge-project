@@ -40,12 +40,18 @@ mod tests {
 
     #[test]
     fn canonical_hash_differs_for_different_values() {
-        assert_ne!(canonical_hash(&json!({"x": 1})), canonical_hash(&json!({"x": 2})));
+        assert_ne!(
+            canonical_hash(&json!({"x": 1})),
+            canonical_hash(&json!({"x": 2}))
+        );
     }
 
     #[test]
     fn file_hash_of_a_missing_path_is_the_literal_missing() {
-        assert_eq!(file_hash(Path::new("/definitely/does/not/exist")), "missing");
+        assert_eq!(
+            file_hash(Path::new("/definitely/does/not/exist")),
+            "missing"
+        );
     }
 
     #[test]
@@ -55,7 +61,10 @@ mod tests {
 
     #[test]
     fn file_hash_of_a_real_file_is_its_sha256() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-engine-filehash-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-engine-filehash-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("sample.bin");
         std::fs::write(&path, b"hello").unwrap();

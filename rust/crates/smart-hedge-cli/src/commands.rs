@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde_json::json;
 use smart_hedge_config::{EnvOverrides, LoadedConfig};
 use smart_hedge_engine::{ContractOverrides, SmartHedgeEngine};
-use smart_hedge_guard_client::{build_trade_intent, GuardClient, TradeIntentParams, TradeSide};
+use smart_hedge_guard_client::{GuardClient, TradeIntentParams, TradeSide, build_trade_intent};
 use smart_hedge_intelligence_client::IntelligenceClient;
 
 use crate::args::ContractOverrideArgs;
@@ -29,8 +29,15 @@ pub fn resolve_config_path(explicit: Option<PathBuf>) -> Option<PathBuf> {
     explicit.or_else(|| std::env::var("SMART_HEDGE_CONFIG").ok().map(PathBuf::from))
 }
 
-pub fn load_config(config_path: Option<PathBuf>, project_root: &Path) -> Result<LoadedConfig, CliError> {
-    Ok(smart_hedge_config::load_config(config_path.as_deref(), &EnvOverrides::from_process_env(), project_root)?)
+pub fn load_config(
+    config_path: Option<PathBuf>,
+    project_root: &Path,
+) -> Result<LoadedConfig, CliError> {
+    Ok(smart_hedge_config::load_config(
+        config_path.as_deref(),
+        &EnvOverrides::from_process_env(),
+        project_root,
+    )?)
 }
 
 fn to_engine_overrides(o: ContractOverrideArgs) -> ContractOverrides {
@@ -48,13 +55,20 @@ fn to_engine_overrides(o: ContractOverrideArgs) -> ContractOverrides {
 /// `model.kind`/`model.name` single adviser `SmartHedgeEngine::new` uses
 /// by default. `model_name: None` is the exact previous behavior — this
 /// function is a strict superset, not a replacement.
-fn build_engine(loaded: LoadedConfig, root: PathBuf, cpp_source: PathBuf, model_name: Option<&str>) -> Result<SmartHedgeEngine, CliError> {
+fn build_engine(
+    loaded: LoadedConfig,
+    root: PathBuf,
+    cpp_source: PathBuf,
+    model_name: Option<&str>,
+) -> Result<SmartHedgeEngine, CliError> {
     match model_name {
         None => Ok(SmartHedgeEngine::new(loaded, root, cpp_source)?),
         Some(name) => {
             let provider = smart_hedge_engine::build_provider(&loaded)?;
             let advisor = smart_hedge_engine::build_advisor_by_name(&loaded, name)?;
-            Ok(SmartHedgeEngine::with_components(loaded, root, cpp_source, provider, advisor)?)
+            Ok(SmartHedgeEngine::with_components(
+                loaded, root, cpp_source, provider, advisor,
+            )?)
         }
     }
 }
@@ -68,13 +82,21 @@ pub fn cmd_build_core(config_path: Option<PathBuf>) -> Result<i32, CliError> {
     Ok(0)
 }
 
-pub fn cmd_once(config_path: Option<PathBuf>, symbol: &str, overrides: ContractOverrideArgs, model: Option<String>) -> Result<i32, CliError> {
+pub fn cmd_once(
+    config_path: Option<PathBuf>,
+    symbol: &str,
+    overrides: ContractOverrideArgs,
+    model: Option<String>,
+) -> Result<i32, CliError> {
     let root = project_root()?;
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
     let engine = build_engine(loaded, root, cpp_source, model.as_deref())?;
     let decision = engine.recommendation(symbol, &to_engine_overrides(overrides))?;
-    println!("{}", serde_json::to_string_pretty(&decision).expect("decision is always serializable"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&decision).expect("decision is always serializable")
+    );
     Ok(0)
 }
 
@@ -128,17 +150,27 @@ pub fn cmd_replay(config_path: Option<PathBuf>, decision_id: &str) -> Result<i32
     let cpp_source = cpp_source_path(&root);
     let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
     let value = engine.replay(decision_id)?;
-    println!("{}", serde_json::to_string_pretty(&value).expect("replayed decision is always serializable"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&value).expect("replayed decision is always serializable")
+    );
     Ok(0)
 }
 
-pub fn cmd_recent(config_path: Option<PathBuf>, limit: i64, symbol: Option<&str>) -> Result<i32, CliError> {
+pub fn cmd_recent(
+    config_path: Option<PathBuf>,
+    limit: i64,
+    symbol: Option<&str>,
+) -> Result<i32, CliError> {
     let root = project_root()?;
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
     let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
     let values = engine.recent(limit, symbol)?;
-    println!("{}", serde_json::to_string_pretty(&values).expect("recent decisions are always serializable"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&values).expect("recent decisions are always serializable")
+    );
     Ok(0)
 }
 
@@ -151,9 +183,14 @@ pub fn cmd_self_test(config_path: Option<PathBuf>, symbol: &str) -> Result<i32, 
     let status = ProcessCommand::new(&binary)
         .arg("--self-test")
         .status()
-        .map_err(|e| CliError::SelfTestFailed(format!("failed to run {}: {e}", binary.display())))?;
+        .map_err(|e| {
+            CliError::SelfTestFailed(format!("failed to run {}: {e}", binary.display()))
+        })?;
     if !status.success() {
-        return Err(CliError::SelfTestFailed(format!("{} --self-test exited with {status}", binary.display())));
+        return Err(CliError::SelfTestFailed(format!(
+            "{} --self-test exited with {status}",
+            binary.display()
+        )));
     }
 
     let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
@@ -162,23 +199,35 @@ pub fn cmd_self_test(config_path: Option<PathBuf>, symbol: &str) -> Result<i32, 
         return Err(CliError::SelfTestFailed("mode was not paper".to_string()));
     }
     if value["policy"]["live_execution_allowed"] != json!(false) {
-        return Err(CliError::SelfTestFailed("live_execution_allowed was not false".to_string()));
+        return Err(CliError::SelfTestFailed(
+            "live_execution_allowed was not false".to_string(),
+        ));
     }
     if value["audit"]["broker_order_endpoint_present"] != json!(false) {
-        return Err(CliError::SelfTestFailed("broker_order_endpoint_present was not false".to_string()));
+        return Err(CliError::SelfTestFailed(
+            "broker_order_endpoint_present was not false".to_string(),
+        ));
     }
 
-    let decision_id = value["decision_id"].as_str().expect("decision_id is always a string");
+    let decision_id = value["decision_id"]
+        .as_str()
+        .expect("decision_id is always a string");
     let replay = engine.replay(decision_id)?;
     if replay["audit"]["stored_content_hash_valid"] != json!(true) {
-        return Err(CliError::SelfTestFailed("stored_content_hash_valid was not true on replay".to_string()));
+        return Err(CliError::SelfTestFailed(
+            "stored_content_hash_valid was not true on replay".to_string(),
+        ));
     }
 
     println!("rust integration self-test: PASS");
     Ok(0)
 }
 
-pub fn cmd_serve(config_path: Option<PathBuf>, host: Option<String>, port: Option<u16>) -> Result<i32, CliError> {
+pub fn cmd_serve(
+    config_path: Option<PathBuf>,
+    host: Option<String>,
+    port: Option<u16>,
+) -> Result<i32, CliError> {
     let root = project_root()?;
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
@@ -260,29 +309,63 @@ fn run_guard_cycle(
 ) -> Result<GuardCycleReport, CliError> {
     let decision = engine.recommendation(symbol, overrides)?;
 
-    let action = decision["policy"]["action"].as_str().unwrap_or("").to_string();
-    let approved = decision["policy"]["paper_preview_approved"].as_bool().unwrap_or(false);
-    let preview_shares = decision["policy"]["paper_trade_preview_shares"].as_f64().unwrap_or(0.0);
+    let action = decision["policy"]["action"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let approved = decision["policy"]["paper_preview_approved"]
+        .as_bool()
+        .unwrap_or(false);
+    let preview_shares = decision["policy"]["paper_trade_preview_shares"]
+        .as_f64()
+        .unwrap_or(0.0);
     if action != "paper_rebalance_preview" || !approved || preview_shares == 0.0 {
-        return Ok(GuardCycleReport { decision, evidence_bundle: None, outcome: GuardCycleOutcome::NoTradeProposed { action, approved } });
+        return Ok(GuardCycleReport {
+            decision,
+            evidence_bundle: None,
+            outcome: GuardCycleOutcome::NoTradeProposed { action, approved },
+        });
     }
 
-    let mut intelligence = IntelligenceClient::spawn(intelligence_binary)
-        .map_err(|e| CliError::GuardDemo(format!("failed to start market-intelligence-mcp ({}): {e}", intelligence_binary.display())))?;
+    let mut intelligence = IntelligenceClient::spawn(intelligence_binary).map_err(|e| {
+        CliError::GuardDemo(format!(
+            "failed to start market-intelligence-mcp ({}): {e}",
+            intelligence_binary.display()
+        ))
+    })?;
     intelligence
         .ingest_source_records(DEMO_SOURCE_ID)
-        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp ingest-source-records failed: {e}")))?;
+        .map_err(|e| {
+            CliError::GuardDemo(format!(
+                "market-intelligence-mcp ingest-source-records failed: {e}"
+            ))
+        })?;
     let history = intelligence
         .get_source_record_history(DEMO_SOURCE_RECORD_ID)
-        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp get-source-record-history failed: {e}")))?;
+        .map_err(|e| {
+            CliError::GuardDemo(format!(
+                "market-intelligence-mcp get-source-record-history failed: {e}"
+            ))
+        })?;
     let record = history
         .as_array()
         .and_then(|arr| arr.first())
         .cloned()
-        .ok_or_else(|| CliError::GuardDemo("market-intelligence-mcp returned no history for the demo fixture record".to_string()))?;
+        .ok_or_else(|| {
+            CliError::GuardDemo(
+                "market-intelligence-mcp returned no history for the demo fixture record"
+                    .to_string(),
+            )
+        })?;
 
-    let decision_id = decision["decision_id"].as_str().unwrap_or("unknown-decision").to_string();
-    let created_at = decision["created_at"].as_str().unwrap_or("1970-01-01T00:00:00Z").to_string();
+    let decision_id = decision["decision_id"]
+        .as_str()
+        .unwrap_or("unknown-decision")
+        .to_string();
+    let created_at = decision["created_at"]
+        .as_str()
+        .unwrap_or("1970-01-01T00:00:00Z")
+        .to_string();
     let evidence_bundle_id = format!("bundle-{decision_id}");
     let evidence_bundle = intelligence
         .build_evidence_bundle(
@@ -291,7 +374,11 @@ fn run_guard_cycle(
             "research",
             &created_at,
         )
-        .map_err(|e| CliError::GuardDemo(format!("market-intelligence-mcp build-evidence-bundle failed: {e}")))?;
+        .map_err(|e| {
+            CliError::GuardDemo(format!(
+                "market-intelligence-mcp build-evidence-bundle failed: {e}"
+            ))
+        })?;
 
     // Deliberately a fresh timestamp, not `created_at` from the
     // recommendation above: `TradeIntent.decision-time` means "when was
@@ -303,9 +390,15 @@ fn run_guard_cycle(
     // since the evidence bundle's own `created-at` (also "now", set by
     // `market-intelligence-mcp`) would then postdate it.
     let decision_time = smart_hedge_models::TimestampUtc::now().to_iso_string();
-    let confidence = decision["model_assessment"]["confidence"].as_f64().unwrap_or(0.0);
+    let confidence = decision["model_assessment"]["confidence"]
+        .as_f64()
+        .unwrap_or(0.0);
     let instrument_id = format!("us-equity-{}", symbol.to_lowercase());
-    let side = if preview_shares > 0.0 { TradeSide::Buy } else { TradeSide::Sell };
+    let side = if preview_shares > 0.0 {
+        TradeSide::Buy
+    } else {
+        TradeSide::Sell
+    };
     let intent = build_trade_intent(&TradeIntentParams {
         intent_id: &decision_id,
         strategy_id: "smart-dynamic-hedge",
@@ -321,17 +414,31 @@ fn run_guard_cycle(
         evidence_bundle_id: Some(&evidence_bundle_id),
     });
 
-    let mut guard = GuardClient::spawn(guard_binary)
-        .map_err(|e| CliError::GuardDemo(format!("failed to start trade-guard-mcp ({}): {e}", guard_binary.display())))?;
-    let outcome = match guard.authorize_and_submit_paper_order(intent, Some(evidence_bundle.clone())) {
+    let mut guard = GuardClient::spawn(guard_binary).map_err(|e| {
+        CliError::GuardDemo(format!(
+            "failed to start trade-guard-mcp ({}): {e}",
+            guard_binary.display()
+        ))
+    })?;
+    let outcome = match guard
+        .authorize_and_submit_paper_order(intent, Some(evidence_bundle.clone()))
+    {
         Ok(value) => GuardCycleOutcome::Filled(value),
         // A rejection (insufficient buying power, evidence ineligible,
         // etc.) is a legitimate, informative outcome, not a hard failure.
         Err(smart_hedge_mcp_client::ClientError::Tool(text)) => GuardCycleOutcome::Rejected(text),
-        Err(e) => return Err(CliError::GuardDemo(format!("trade-guard-mcp authorize-and-submit-paper-order failed: {e}"))),
+        Err(e) => {
+            return Err(CliError::GuardDemo(format!(
+                "trade-guard-mcp authorize-and-submit-paper-order failed: {e}"
+            )));
+        }
     };
 
-    Ok(GuardCycleReport { decision, evidence_bundle: Some(evidence_bundle), outcome })
+    Ok(GuardCycleReport {
+        decision,
+        evidence_bundle: Some(evidence_bundle),
+        outcome,
+    })
 }
 
 /// Port of Phase 4 in `06-implementation-order-and-acceptance.md`'s
@@ -369,13 +476,24 @@ pub fn cmd_guard_demo(
     let engine = SmartHedgeEngine::new(loaded, root, cpp_source)?;
     let engine_overrides = to_engine_overrides(overrides);
 
-    let report = run_guard_cycle(&engine, symbol, &engine_overrides, &intelligence_binary, &guard_binary)?;
+    let report = run_guard_cycle(
+        &engine,
+        symbol,
+        &engine_overrides,
+        &intelligence_binary,
+        &guard_binary,
+    )?;
     println!("=== smart-dynamic-hedge recommendation ===");
-    println!("{}", serde_json::to_string_pretty(&report.decision).expect("decision is always serializable"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report.decision).expect("decision is always serializable")
+    );
 
     match report.outcome {
         GuardCycleOutcome::NoTradeProposed { action, approved } => {
-            println!("\n=== no trade proposed (action={action:?}, approved={approved}) — trade-guard-mcp not called ===");
+            println!(
+                "\n=== no trade proposed (action={action:?}, approved={approved}) — trade-guard-mcp not called ==="
+            );
         }
         GuardCycleOutcome::Rejected(text) => {
             print_evidence_bundle(&report.evidence_bundle);
@@ -385,7 +503,10 @@ pub fn cmd_guard_demo(
         GuardCycleOutcome::Filled(value) => {
             print_evidence_bundle(&report.evidence_bundle);
             println!("\n=== trade-guard-mcp paper-order result ===");
-            println!("{}", serde_json::to_string_pretty(&value).expect("guard result is always serializable"));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).expect("guard result is always serializable")
+            );
         }
     }
     Ok(0)
@@ -394,7 +515,10 @@ pub fn cmd_guard_demo(
 fn print_evidence_bundle(evidence_bundle: &Option<serde_json::Value>) {
     if let Some(bundle) = evidence_bundle {
         println!("\n=== market-intelligence-mcp evidence bundle ===");
-        println!("{}", serde_json::to_string_pretty(bundle).expect("evidence bundle is always serializable"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(bundle).expect("evidence bundle is always serializable")
+        );
     }
 }
 
@@ -459,22 +583,36 @@ pub fn cmd_autonomous(
     let mut consecutive_errors: u32 = 0;
     loop {
         if stop_file.exists() {
-            println!("stop file {} present -- halting after {iteration} iteration(s)", stop_file.display());
+            println!(
+                "stop file {} present -- halting after {iteration} iteration(s)",
+                stop_file.display()
+            );
             return Ok(0);
         }
         if max_iterations.is_some_and(|max| iteration >= max) {
-            println!("reached --max-iterations={} -- halting", max_iterations.expect("is_some_and checked above"));
+            println!(
+                "reached --max-iterations={} -- halting",
+                max_iterations.expect("is_some_and checked above")
+            );
             return Ok(0);
         }
 
-        match run_guard_cycle(&engine, symbol, &engine_overrides, &intelligence_binary, &guard_binary) {
+        match run_guard_cycle(
+            &engine,
+            symbol,
+            &engine_overrides,
+            &intelligence_binary,
+            &guard_binary,
+        ) {
             Ok(report) => {
                 consecutive_errors = 0;
                 println!("{}", autonomous_cycle_line(iteration, symbol, &report));
             }
             Err(e) => {
                 consecutive_errors += 1;
-                eprintln!("iteration {iteration}: error ({consecutive_errors}/{max_consecutive_errors} consecutive): {e}");
+                eprintln!(
+                    "iteration {iteration}: error ({consecutive_errors}/{max_consecutive_errors} consecutive): {e}"
+                );
                 if consecutive_errors >= max_consecutive_errors {
                     return Err(CliError::Autonomous(format!(
                         "halting after {consecutive_errors} consecutive errors (max_consecutive_errors={max_consecutive_errors}); last error: {e}"
@@ -492,7 +630,9 @@ fn autonomous_cycle_line(iteration: u32, symbol: &str, report: &GuardCycleReport
     let created_at = report.decision["created_at"].as_str().unwrap_or("");
     match &report.outcome {
         GuardCycleOutcome::NoTradeProposed { action, approved } => {
-            format!("[{iteration}] {created_at} {symbol} no trade proposed (action={action}, approved={approved})")
+            format!(
+                "[{iteration}] {created_at} {symbol} no trade proposed (action={action}, approved={approved})"
+            )
         }
         GuardCycleOutcome::Rejected(text) => {
             format!("[{iteration}] {created_at} {symbol} rejected by trade-guard-mcp: {text}")
@@ -515,11 +655,17 @@ pub fn cmd_portfolio(config_path: Option<PathBuf>, symbols: Vec<String>) -> Resu
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
 
-    let symbols = if symbols.is_empty() { loaded.config.contracts.keys().cloned().collect() } else { symbols };
+    let symbols = if symbols.is_empty() {
+        loaded.config.contracts.keys().cloned().collect()
+    } else {
+        symbols
+    };
     if symbols.is_empty() {
-        return Err(CliError::Engine(smart_hedge_engine::EngineError::UnknownSymbol(
-            "no symbols given and no contracts configured".to_string(),
-        )));
+        return Err(CliError::Engine(
+            smart_hedge_engine::EngineError::UnknownSymbol(
+                "no symbols given and no contracts configured".to_string(),
+            ),
+        ));
     }
 
     let positions = smart_hedge_portfolio::build_portfolio(&loaded, &root, &cpp_source, &symbols)?;
@@ -529,7 +675,10 @@ pub fn cmd_portfolio(config_path: Option<PathBuf>, symbols: Vec<String>) -> Resu
         "positions": positions,
         "summary": summary,
     });
-    println!("{}", serde_json::to_string_pretty(&output).expect("portfolio output is always serializable"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output).expect("portfolio output is always serializable")
+    );
     Ok(0)
 }
 
@@ -539,7 +688,12 @@ pub fn cmd_portfolio(config_path: Option<PathBuf>, symbols: Vec<String>) -> Resu
 /// days. See `smart_hedge_backtest`'s module doc comment for exactly what
 /// this proves (a real multi-day pipeline run) and doesn't (real
 /// historical market data, which doesn't exist anywhere in this system).
-pub fn cmd_backtest(config_path: Option<PathBuf>, symbol: &str, days: u32, start: Option<String>) -> Result<i32, CliError> {
+pub fn cmd_backtest(
+    config_path: Option<PathBuf>,
+    symbol: &str,
+    days: u32,
+    start: Option<String>,
+) -> Result<i32, CliError> {
     let root = project_root()?;
     let loaded = load_config(resolve_config_path(config_path), &root)?;
     let cpp_source = cpp_source_path(&root);
@@ -550,9 +704,16 @@ pub fn cmd_backtest(config_path: Option<PathBuf>, symbol: &str, days: u32, start
         None => smart_hedge_models::TimestampUtc::now(),
     };
 
-    let config = smart_hedge_backtest::BacktestConfig { symbol: symbol.to_string(), num_days: days, start };
+    let config = smart_hedge_backtest::BacktestConfig {
+        symbol: symbol.to_string(),
+        num_days: days,
+        start,
+    };
     let report = smart_hedge_backtest::run_backtest(&loaded, &root, &cpp_source, &config)?;
-    println!("{}", serde_json::to_string_pretty(&report).expect("backtest report is always serializable"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("backtest report is always serializable")
+    );
     Ok(0)
 }
 
@@ -570,7 +731,10 @@ mod tests {
             "policy": {"action": "hold", "paper_trade_preview_shares": 1.5, "blocking_reasons": []},
         });
         let line = format_loop_line(&decision);
-        assert_eq!(line, "2026-07-19T00:00:00Z SPY mid=100.0000 regime=calm action=hold preview=1.500 blockers=[]");
+        assert_eq!(
+            line,
+            "2026-07-19T00:00:00Z SPY mid=100.0000 regime=calm action=hold preview=1.500 blockers=[]"
+        );
     }
 
     #[test]

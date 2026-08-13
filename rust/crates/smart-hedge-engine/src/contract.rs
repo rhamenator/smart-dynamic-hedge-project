@@ -43,8 +43,11 @@ pub fn resolve_contract(
     midpoint: f64,
     now: TimestampUtc,
 ) -> Result<ContractConfig, EngineError> {
-    let mut contract =
-        config.contracts.get(symbol).cloned().ok_or_else(|| EngineError::UnknownSymbol(symbol.to_string()))?;
+    let mut contract = config
+        .contracts
+        .get(symbol)
+        .cloned()
+        .ok_or_else(|| EngineError::UnknownSymbol(symbol.to_string()))?;
 
     if let Some(v) = overrides.strike {
         contract.strike = StrikeSpec::Fixed(v);
@@ -78,7 +81,9 @@ pub fn resolve_contract(
         return Err(EngineError::InvalidOptionType(contract.option_type.clone()));
     }
     if !matches!(contract.exercise_style.as_str(), "american" | "european") {
-        return Err(EngineError::InvalidExerciseStyle(contract.exercise_style.clone()));
+        return Err(EngineError::InvalidExerciseStyle(
+            contract.exercise_style.clone(),
+        ));
     }
 
     let resolved_strike = match contract.strike {
@@ -116,11 +121,15 @@ mod tests {
         // config.json and race on remove_dir_all.
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-engine-contract-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-engine-contract-test-{}-{n}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, format!(r#"{{"contracts": {contracts_json}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         loaded.config
     }
@@ -131,7 +140,13 @@ mod tests {
         let config = config_with_contracts(
             r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2, "option_type": "straddle"}}"#,
         );
-        let result = resolve_contract(&config, "SPY", &ContractOverrides::default(), 100.0, TimestampUtc::now());
+        let result = resolve_contract(
+            &config,
+            "SPY",
+            &ContractOverrides::default(),
+            100.0,
+            TimestampUtc::now(),
+        );
         assert!(matches!(result, Err(EngineError::InvalidOptionType(_))));
     }
 
@@ -141,23 +156,43 @@ mod tests {
         let config = config_with_contracts(
             r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2, "exercise_style": "bermudan"}}"#,
         );
-        let result = resolve_contract(&config, "SPY", &ContractOverrides::default(), 100.0, TimestampUtc::now());
+        let result = resolve_contract(
+            &config,
+            "SPY",
+            &ContractOverrides::default(),
+            100.0,
+            TimestampUtc::now(),
+        );
         assert!(matches!(result, Err(EngineError::InvalidExerciseStyle(_))));
     }
 
     /// SDH-LLR-131: an "ATM" strike resolves to the rounded midpoint.
     #[test]
     fn atm_strike_resolves_to_rounded_midpoint() {
-        let config = config_with_contracts(r#"{"SPY": {"strike": "ATM", "implied_volatility": 0.2}}"#);
-        let contract =
-            resolve_contract(&config, "SPY", &ContractOverrides::default(), 123.6, TimestampUtc::now()).unwrap();
+        let config =
+            config_with_contracts(r#"{"SPY": {"strike": "ATM", "implied_volatility": 0.2}}"#);
+        let contract = resolve_contract(
+            &config,
+            "SPY",
+            &ContractOverrides::default(),
+            123.6,
+            TimestampUtc::now(),
+        )
+        .unwrap();
         assert_eq!(resolved_strike(&contract), 124.0);
     }
 
     #[test]
     fn unknown_symbol_is_rejected() {
-        let config = config_with_contracts(r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2}}"#);
-        let result = resolve_contract(&config, "NOPE", &ContractOverrides::default(), 100.0, TimestampUtc::now());
+        let config =
+            config_with_contracts(r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2}}"#);
+        let result = resolve_contract(
+            &config,
+            "NOPE",
+            &ContractOverrides::default(),
+            100.0,
+            TimestampUtc::now(),
+        );
         assert!(matches!(result, Err(EngineError::UnknownSymbol(_))));
     }
 
@@ -168,7 +203,8 @@ mod tests {
             r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2, "days_to_expiry": 999.0, "expiry": "2026-07-20"}}"#,
         );
         let now = TimestampUtc::parse_flexible("2026-07-19T00:00:00Z").unwrap();
-        let contract = resolve_contract(&config, "SPY", &ContractOverrides::default(), 100.0, now).unwrap();
+        let contract =
+            resolve_contract(&config, "SPY", &ContractOverrides::default(), 100.0, now).unwrap();
         // 2026-07-20T21:00:00Z minus 2026-07-19T00:00:00Z = 1 day + 21 hours = 1.875 days.
         assert!((contract.days_to_expiry - 1.875).abs() < 1e-9);
         assert!(contract.expiry.is_none()); // popped, matching Python
@@ -181,24 +217,38 @@ mod tests {
             r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2, "expiry": "2026-07-20"}}"#,
         );
         let now = TimestampUtc::parse_flexible("2026-07-19T00:00:00Z").unwrap();
-        let overrides = ContractOverrides { days_to_expiry: Some(365.0), ..Default::default() };
+        let overrides = ContractOverrides {
+            days_to_expiry: Some(365.0),
+            ..Default::default()
+        };
         let contract = resolve_contract(&config, "SPY", &overrides, 100.0, now).unwrap();
-        assert!((contract.days_to_expiry - 1.875).abs() < 1e-9, "expiry should have won, got {}", contract.days_to_expiry);
+        assert!(
+            (contract.days_to_expiry - 1.875).abs() < 1e-9,
+            "expiry should have won, got {}",
+            contract.days_to_expiry
+        );
     }
 
     #[test]
     fn days_to_expiry_from_date_is_floored_at_zero_for_a_past_date() {
-        let config =
-            config_with_contracts(r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2, "expiry": "2020-01-01"}}"#);
+        let config = config_with_contracts(
+            r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2, "expiry": "2020-01-01"}}"#,
+        );
         let now = TimestampUtc::parse_flexible("2026-07-19T00:00:00Z").unwrap();
-        let contract = resolve_contract(&config, "SPY", &ContractOverrides::default(), 100.0, now).unwrap();
+        let contract =
+            resolve_contract(&config, "SPY", &ContractOverrides::default(), 100.0, now).unwrap();
         assert_eq!(contract.days_to_expiry, 0.0);
     }
 
     #[test]
     fn overrides_apply_before_validation() {
-        let config = config_with_contracts(r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2}}"#);
-        let overrides = ContractOverrides { strike: Some(150.0), current_shares: Some(-5.0), ..Default::default() };
+        let config =
+            config_with_contracts(r#"{"SPY": {"strike": 100.0, "implied_volatility": 0.2}}"#);
+        let overrides = ContractOverrides {
+            strike: Some(150.0),
+            current_shares: Some(-5.0),
+            ..Default::default()
+        };
         let contract =
             resolve_contract(&config, "SPY", &overrides, 100.0, TimestampUtc::now()).unwrap();
         assert_eq!(resolved_strike(&contract), 150.0);
@@ -207,8 +257,15 @@ mod tests {
 
     #[test]
     fn nonpositive_resolved_strike_is_rejected() {
-        let config = config_with_contracts(r#"{"SPY": {"strike": -5.0, "implied_volatility": 0.2}}"#);
-        let result = resolve_contract(&config, "SPY", &ContractOverrides::default(), 100.0, TimestampUtc::now());
+        let config =
+            config_with_contracts(r#"{"SPY": {"strike": -5.0, "implied_volatility": 0.2}}"#);
+        let result = resolve_contract(
+            &config,
+            "SPY",
+            &ContractOverrides::default(),
+            100.0,
+            TimestampUtc::now(),
+        );
         assert!(matches!(result, Err(EngineError::InvalidStrike(_))));
     }
 }

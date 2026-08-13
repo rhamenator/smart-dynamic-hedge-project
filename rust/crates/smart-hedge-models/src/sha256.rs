@@ -140,12 +140,19 @@ mod tests {
         let message = vec![b'a'; 1_000_000];
         let digest = sha256_hex(&message);
         assert_eq!(digest.len(), 64);
-        assert_eq!(digest, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+        assert_eq!(
+            digest,
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+        );
     }
 
     #[test]
     fn digest_is_always_32_bytes() {
-        for input in [&b""[..], b"x", b"a much longer message than the others above"] {
+        for input in [
+            &b""[..],
+            b"x",
+            b"a much longer message than the others above",
+        ] {
             assert_eq!(sha256(input).len(), 32);
         }
     }

@@ -14,8 +14,12 @@ const MAX_BODY_BYTES: usize = 1024 * 1024;
 /// OpenAI's Responses API — so no path routing is needed, unlike
 /// `smart-hedge-data`'s multi-route Alpaca/FRED/RSS mocks).
 pub fn start(status: u16, body: String) -> u16 {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("binding an ephemeral local port should never fail");
-    let port = listener.local_addr().expect("a bound listener always has a local address").port();
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .expect("binding an ephemeral local port should never fail");
+    let port = listener
+        .local_addr()
+        .expect("a bound listener always has a local address")
+        .port();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             handle_one(stream, status, &body);
@@ -25,7 +29,11 @@ pub fn start(status: u16, body: String) -> u16 {
 }
 
 fn handle_one(mut stream: TcpStream, status: u16, body: &str) {
-    let mut reader = BufReader::new(stream.try_clone().expect("cloning a TCP stream handle should never fail"));
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .expect("cloning a TCP stream handle should never fail"),
+    );
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
         return;

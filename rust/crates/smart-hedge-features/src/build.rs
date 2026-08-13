@@ -24,7 +24,12 @@ pub fn build_features(snapshot: &MarketSnapshot, config: &FeaturesConfig) -> Fea
     let short_window = config.short_window.max(0) as usize;
     let long_window = config.long_window.max(0) as usize;
 
-    let closes: Vec<f64> = snapshot.bars.iter().map(|b| b.close).filter(|&c| c > 0.0).collect();
+    let closes: Vec<f64> = snapshot
+        .bars
+        .iter()
+        .map(|b| b.close)
+        .filter(|&c| c > 0.0)
+        .collect();
     let volumes: Vec<f64> = snapshot.bars.iter().map(|b| b.volume.max(0.0)).collect();
     let returns = log_returns(&closes);
 
@@ -82,9 +87,18 @@ pub fn build_features(snapshot: &MarketSnapshot, config: &FeaturesConfig) -> Fea
     values.insert("spot".to_string(), Value::from(snapshot.quote.midpoint()));
     values.insert("bid".to_string(), Value::from(snapshot.quote.bid));
     values.insert("ask".to_string(), Value::from(snapshot.quote.ask));
-    values.insert("spread_bps".to_string(), Value::from(snapshot.quote.spread_bps()));
-    values.insert("market_state".to_string(), Value::String(snapshot.quote.market_state.clone()));
-    values.insert("bar_count".to_string(), Value::from(snapshot.bars.len() as f64));
+    values.insert(
+        "spread_bps".to_string(),
+        Value::from(snapshot.quote.spread_bps()),
+    );
+    values.insert(
+        "market_state".to_string(),
+        Value::String(snapshot.quote.market_state.clone()),
+    );
+    values.insert(
+        "bar_count".to_string(),
+        Value::from(snapshot.bars.len() as f64),
+    );
     values.insert("realized_volatility".to_string(), opt(realized));
     values.insert("ewma_volatility".to_string(), opt(ewma_vol));
     values.insert(format!("return_{short_window}_bars"), opt(short_return));
@@ -98,8 +112,16 @@ pub fn build_features(snapshot: &MarketSnapshot, config: &FeaturesConfig) -> Fea
     }
 
     let mut quality_components = vec![
-        if snapshot.quote.midpoint() > 0.0 { 1.0 } else { 0.0 },
-        if snapshot.quote.spread_bps().is_finite() { 1.0 } else { 0.0 },
+        if snapshot.quote.midpoint() > 0.0 {
+            1.0
+        } else {
+            0.0
+        },
+        if snapshot.quote.spread_bps().is_finite() {
+            1.0
+        } else {
+            0.0
+        },
         (snapshot.bars.len() as f64 / (long_window as f64 + 1.0).max(1.0)).min(1.0),
         1.0 - (missing.len() as f64 / 6.0).min(1.0),
     ];
@@ -113,6 +135,10 @@ pub fn build_features(snapshot: &MarketSnapshot, config: &FeaturesConfig) -> Fea
         missing,
         warnings,
         data_quality,
-        evidence_ids: snapshot.evidence.iter().map(|e| e.evidence_id.clone()).collect(),
+        evidence_ids: snapshot
+            .evidence
+            .iter()
+            .map(|e| e.evidence_id.clone())
+            .collect(),
     }
 }

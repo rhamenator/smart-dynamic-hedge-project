@@ -8,7 +8,12 @@ use smart_hedge_models::{Bar, EvidenceItem, MarketSnapshot, Quote};
 use crate::build::build_features;
 
 fn config() -> FeaturesConfig {
-    FeaturesConfig { bars_per_year: 98_280.0, ewma_lambda: 0.94, short_window: 20, long_window: 90 }
+    FeaturesConfig {
+        bars_per_year: 98_280.0,
+        ewma_lambda: 0.94,
+        short_window: 20,
+        long_window: 90,
+    }
 }
 
 fn bar(i: usize, close: f64, volume: f64) -> Bar {
@@ -26,7 +31,15 @@ fn snapshot_with_bars(bars: Vec<Bar>) -> MarketSnapshot {
     let last_close = bars.last().map(|b| b.close).unwrap_or(100.0);
     MarketSnapshot::new(
         "TEST",
-        Quote::new("TEST", last_close - 0.01, last_close + 0.01, last_close, "2026-07-19T00:00:00Z", "test", "open"),
+        Quote::new(
+            "TEST",
+            last_close - 0.01,
+            last_close + 0.01,
+            last_close,
+            "2026-07-19T00:00:00Z",
+            "test",
+            "open",
+        ),
         bars,
         Vec::new(),
     )
@@ -38,8 +51,15 @@ fn snapshot_with_bars(bars: Vec<Bar>) -> MarketSnapshot {
 fn realized_volatility_is_missing_with_fewer_than_two_closes() {
     let snapshot = snapshot_with_bars(vec![bar(0, 100.0, 1000.0)]);
     let features = build_features(&snapshot, &config());
-    assert!(features.missing.contains(&"realized_volatility".to_string()));
-    assert_eq!(features.values.get("realized_volatility"), Some(&Value::Null));
+    assert!(
+        features
+            .missing
+            .contains(&"realized_volatility".to_string())
+    );
+    assert_eq!(
+        features.values.get("realized_volatility"),
+        Some(&Value::Null)
+    );
 }
 
 /// SDH-LLR-111 (positive case): with enough history, realized volatility
@@ -47,10 +67,18 @@ fn realized_volatility_is_missing_with_fewer_than_two_closes() {
 #[test]
 fn realized_volatility_is_present_with_enough_closes() {
     let closes = [100.0, 101.0, 99.5, 102.0, 98.0, 103.0];
-    let bars: Vec<Bar> = closes.iter().enumerate().map(|(i, &c)| bar(i, c, 1000.0)).collect();
+    let bars: Vec<Bar> = closes
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| bar(i, c, 1000.0))
+        .collect();
     let snapshot = snapshot_with_bars(bars);
     let features = build_features(&snapshot, &config());
-    assert!(!features.missing.contains(&"realized_volatility".to_string()));
+    assert!(
+        !features
+            .missing
+            .contains(&"realized_volatility".to_string())
+    );
     match features.values.get("realized_volatility") {
         Some(Value::Number(n)) => assert!(n.as_f64().unwrap() > 0.0),
         other => panic!("expected a positive number, got {other:?}"),
@@ -65,19 +93,37 @@ fn volume_zscore_unavailable_with_fewer_than_21_bars() {
     let snapshot = snapshot_with_bars(bars);
     let features = build_features(&snapshot, &config());
     assert_eq!(features.values.get("volume_zscore"), Some(&Value::Null));
-    assert!(features.warnings.contains(&"volume_zscore_unavailable".to_string()));
+    assert!(
+        features
+            .warnings
+            .contains(&"volume_zscore_unavailable".to_string())
+    );
 }
 
 /// SDH-LLR-112 (positive case): 21+ bars with varying volume produces a
 /// real z-score.
 #[test]
 fn volume_zscore_present_with_21_or_more_bars() {
-    let bars: Vec<Bar> =
-        (0..25).map(|i| bar(i, 100.0 + i as f64 * 0.1, 1000.0 + (i as f64 * 37.0) % 200.0)).collect();
+    let bars: Vec<Bar> = (0..25)
+        .map(|i| {
+            bar(
+                i,
+                100.0 + i as f64 * 0.1,
+                1000.0 + (i as f64 * 37.0) % 200.0,
+            )
+        })
+        .collect();
     let snapshot = snapshot_with_bars(bars);
     let features = build_features(&snapshot, &config());
-    assert!(!features.warnings.contains(&"volume_zscore_unavailable".to_string()));
-    assert!(matches!(features.values.get("volume_zscore"), Some(Value::Number(_))));
+    assert!(
+        !features
+            .warnings
+            .contains(&"volume_zscore_unavailable".to_string())
+    );
+    assert!(matches!(
+        features.values.get("volume_zscore"),
+        Some(Value::Number(_))
+    ));
 }
 
 /// SDH-LLR-113: a realized volatility at/below the `1e-9` floor (a
@@ -108,7 +154,10 @@ fn trend_score_is_present_with_a_real_trend_and_volatility() {
     cfg.short_window = 10;
     cfg.long_window = 20;
     let features = build_features(&snapshot, &cfg);
-    assert!(matches!(features.values.get("trend_score"), Some(Value::Number(_))));
+    assert!(matches!(
+        features.values.get("trend_score"),
+        Some(Value::Number(_))
+    ));
 }
 
 /// SDH-LLR-110: data-quality composition — a "perfect" snapshot (valid
@@ -116,10 +165,16 @@ fn trend_score_is_present_with_a_real_trend_and_volatility() {
 /// evidence) should score at or very near 1.0.
 #[test]
 fn data_quality_is_high_for_a_complete_snapshot() {
-    let bars: Vec<Bar> = (0..100).map(|i| bar(i, 100.0 + (i as f64 * 0.01), 1000.0)).collect();
+    let bars: Vec<Bar> = (0..100)
+        .map(|i| bar(i, 100.0 + (i as f64 * 0.01), 1000.0))
+        .collect();
     let snapshot = snapshot_with_bars(bars);
     let features = build_features(&snapshot, &config());
-    assert!(features.data_quality > 0.9, "expected high data quality, got {}", features.data_quality);
+    assert!(
+        features.data_quality > 0.9,
+        "expected high data quality, got {}",
+        features.data_quality
+    );
 }
 
 /// SDH-LLR-110: an invalid quote (non-positive bid/ask/last) plus no bar
@@ -128,19 +183,33 @@ fn data_quality_is_high_for_a_complete_snapshot() {
 fn data_quality_is_low_for_a_degenerate_snapshot() {
     let snapshot = MarketSnapshot::new(
         "TEST",
-        Quote::new("TEST", 0.0, 0.0, 0.0, "2026-07-19T00:00:00Z", "test", "closed"),
+        Quote::new(
+            "TEST",
+            0.0,
+            0.0,
+            0.0,
+            "2026-07-19T00:00:00Z",
+            "test",
+            "closed",
+        ),
         Vec::new(),
         Vec::new(),
     );
     let features = build_features(&snapshot, &config());
-    assert!(features.data_quality < 0.3, "expected low data quality, got {}", features.data_quality);
+    assert!(
+        features.data_quality < 0.3,
+        "expected low data quality, got {}",
+        features.data_quality
+    );
 }
 
 /// SDH-LLR-110: evidence quality feeds into the overall data-quality
 /// score when evidence is present.
 #[test]
 fn evidence_quality_influences_data_quality() {
-    let bars: Vec<Bar> = (0..100).map(|i| bar(i, 100.0 + (i as f64 * 0.01), 1000.0)).collect();
+    let bars: Vec<Bar> = (0..100)
+        .map(|i| bar(i, 100.0 + (i as f64 * 0.01), 1000.0))
+        .collect();
     let mut snapshot = snapshot_with_bars(bars);
     snapshot.evidence = vec![EvidenceItem {
         evidence_id: "e1".to_string(),

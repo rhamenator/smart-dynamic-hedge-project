@@ -20,7 +20,10 @@ pub struct TimedOutput {
 /// outlives `timeout`. Fully cross-platform via `std` alone —
 /// `Child::kill()` already does the right thing on both Windows
 /// (`TerminateProcess`) and Unix (`SIGKILL`).
-pub fn run_command_with_timeout(command: &mut Command, timeout: Duration) -> Result<TimedOutput, CoreError> {
+pub fn run_command_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Result<TimedOutput, CoreError> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn()?;
     let mut stdout_pipe = child.stdout.take().expect("stdout was piped");
@@ -82,7 +85,8 @@ mod tests {
 
     #[test]
     fn captures_stdout_of_a_fast_command() {
-        let result = run_command_with_timeout(&mut echo_command("hello"), Duration::from_secs(5)).unwrap();
+        let result =
+            run_command_with_timeout(&mut echo_command("hello"), Duration::from_secs(5)).unwrap();
         assert!(result.status.success());
         assert!(result.stdout.contains("hello"));
     }

@@ -25,8 +25,12 @@ fn population_stdev(values: &[f64]) -> f64 {
 /// meaningful, even though the PRNG consuming this seed is not a port of
 /// Python's Mersenne Twister (see `rng` module doc comment).
 fn derive_seed(symbol: &str, bucket: i64) -> u64 {
-    let char_sum: i64 =
-        symbol.to_uppercase().chars().enumerate().map(|(i, ch)| (i as i64 + 1) * ch as i64).sum();
+    let char_sum: i64 = symbol
+        .to_uppercase()
+        .chars()
+        .enumerate()
+        .map(|(i, ch)| (i as i64 + 1) * ch as i64)
+        .sum();
     (char_sum + bucket).max(0) as u64
 }
 
@@ -106,9 +110,19 @@ impl SyntheticProvider {
         let last = *closes.last().unwrap();
         let spread_bps = rng.uniform(0.5, 4.0);
         let half_spread = last * spread_bps / 20_000.0;
-        let quote = Quote::new(&symbol_upper, last - half_spread, last + half_spread, last, now_iso.clone(), "synthetic", "open");
+        let quote = Quote::new(
+            &symbol_upper,
+            last - half_spread,
+            last + half_spread,
+            last,
+            now_iso.clone(),
+            "synthetic",
+            "open",
+        );
 
-        let log_returns: Vec<f64> = (1..closes.len()).map(|i| (closes[i] / closes[i - 1]).ln()).collect();
+        let log_returns: Vec<f64> = (1..closes.len())
+            .map(|i| (closes[i] / closes[i - 1]).ln())
+            .collect();
         let realized = population_stdev(&log_returns) * BARS_PER_YEAR.sqrt();
 
         let mut evidence = vec![
@@ -157,7 +171,12 @@ mod tests {
     use smart_hedge_config::EnvOverrides;
 
     fn config() -> LoadedConfig {
-        smart_hedge_config::load_config(None, &EnvOverrides::default(), std::path::Path::new("/root")).unwrap()
+        smart_hedge_config::load_config(
+            None,
+            &EnvOverrides::default(),
+            std::path::Path::new("/root"),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -230,13 +249,21 @@ mod tests {
 
     #[test]
     fn configured_contract_strike_anchors_the_price_path() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-synth-anchor-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-synth-anchor-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, r#"{"contracts": {"ZZZ": {"strike": 500.0, "days_to_expiry": 30.0, "implied_volatility": 0.2}}}"#).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir)
+                .unwrap();
         let provider = SyntheticProvider::new(loaded);
-        let snapshot = provider.snapshot_at("ZZZ", TimestampUtc::parse_flexible("2026-07-19T00:00:00Z").unwrap());
+        let snapshot = provider.snapshot_at(
+            "ZZZ",
+            TimestampUtc::parse_flexible("2026-07-19T00:00:00Z").unwrap(),
+        );
         // Anchor is 500 * (1 +/- up to 3%), so the first close should be
         // in a plausible neighborhood of 500, not near the 100.0 default.
         assert!(snapshot.bars[0].close > 400.0 && snapshot.bars[0].close < 600.0);

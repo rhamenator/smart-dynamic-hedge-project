@@ -3,12 +3,22 @@ use std::fmt;
 /// Port of the `ValueError`s Python's `validate_assessment_payload` raises.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchemaError {
-    KeyMismatch { missing: Vec<String>, extra: Vec<String> },
+    KeyMismatch {
+        missing: Vec<String>,
+        extra: Vec<String>,
+    },
     InvalidRegime(String),
     NotNumeric(String),
-    OutOfRange { field: String },
-    NotAList { field: String, max: usize },
-    ListItemNotAString { field: String },
+    OutOfRange {
+        field: String,
+    },
+    NotAList {
+        field: String,
+        max: usize,
+    },
+    ListItemNotAString {
+        field: String,
+    },
     ScenarioShocksCountOutOfRange,
     SummaryInvalid,
 }
@@ -17,17 +27,24 @@ impl fmt::Display for SchemaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::KeyMismatch { missing, extra } => {
-                write!(f, "assessment keys mismatch; missing={missing:?}, extra={extra:?}")
+                write!(
+                    f,
+                    "assessment keys mismatch; missing={missing:?}, extra={extra:?}"
+                )
             }
             Self::InvalidRegime(r) => write!(f, "invalid regime: {r}"),
             Self::NotNumeric(field) => write!(f, "{field} must be numeric"),
             Self::OutOfRange { field } => write!(f, "{field} is out of its allowed range"),
-            Self::NotAList { field, max } => write!(f, "{field} must be a list with at most {max} items"),
+            Self::NotAList { field, max } => {
+                write!(f, "{field} must be a list with at most {max} items")
+            }
             Self::ListItemNotAString { field } => write!(f, "{field} items must be strings"),
             Self::ScenarioShocksCountOutOfRange => {
                 write!(f, "scenario_spot_shocks must contain 1 to 7 values")
             }
-            Self::SummaryInvalid => write!(f, "summary must be a string no longer than 1000 characters"),
+            Self::SummaryInvalid => {
+                write!(f, "summary must be a string no longer than 1000 characters")
+            }
         }
     }
 }

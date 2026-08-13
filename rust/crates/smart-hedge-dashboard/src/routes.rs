@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use smart_hedge_engine::{ContractOverrides, EngineError, SmartHedgeEngine};
 
 use crate::cache::Cache;
@@ -26,12 +26,21 @@ fn json_response(status: u16, reason: &'static str, value: &Value) -> RenderedRe
     }
 }
 
-fn detail_error(status: u16, reason: &'static str, detail: impl std::fmt::Display) -> RenderedResponse {
+fn detail_error(
+    status: u16,
+    reason: &'static str,
+    detail: impl std::fmt::Display,
+) -> RenderedResponse {
     json_response(status, reason, &json!({"detail": detail.to_string()}))
 }
 
 fn html_response(body: &str) -> RenderedResponse {
-    RenderedResponse { status: 200, reason: "OK", content_type: "text/html; charset=utf-8", body: body.as_bytes().to_vec() }
+    RenderedResponse {
+        status: 200,
+        reason: "OK",
+        content_type: "text/html; charset=utf-8",
+        body: body.as_bytes().to_vec(),
+    }
 }
 
 /// Port of `Query(..., min_length=1, max_length=12,
@@ -39,11 +48,16 @@ fn html_response(body: &str) -> RenderedResponse {
 /// the `symbol` query parameter in both `/api/recommendation` and
 /// `/api/history`.
 fn valid_symbol(s: &str) -> bool {
-    (1..=12).contains(&s.chars().count()) && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    (1..=12).contains(&s.chars().count())
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 fn parse_bool_flag(value: Option<&String>) -> bool {
-    matches!(value.map(String::as_str), Some("true" | "1" | "yes" | "True" | "TRUE"))
+    matches!(
+        value.map(String::as_str),
+        Some("true" | "1" | "yes" | "True" | "TRUE")
+    )
 }
 
 fn parse_positive_i64(value: Option<&String>, default: i64) -> i64 {
@@ -57,17 +71,22 @@ fn route_health(state: &AppState) -> RenderedResponse {
 fn route_recommendation(state: &AppState, req: &ParsedRequest) -> RenderedResponse {
     let raw_symbol = req.query.get("symbol").map(String::as_str).unwrap_or("SPY");
     if !valid_symbol(raw_symbol) {
-        return detail_error(422, "Unprocessable Entity", "symbol must be 1-12 characters of [A-Za-z0-9._-]");
+        return detail_error(
+            422,
+            "Unprocessable Entity",
+            "symbol must be 1-12 characters of [A-Za-z0-9._-]",
+        );
     }
     let symbol = raw_symbol.to_uppercase();
     let fresh = parse_bool_flag(req.query.get("fresh"));
 
-    if !fresh
-        && let Some(cached) = state.cache.get(&symbol)
-    {
+    if !fresh && let Some(cached) = state.cache.get(&symbol) {
         return json_response(200, "OK", &cached);
     }
-    match state.engine.recommendation(&symbol, &ContractOverrides::default()) {
+    match state
+        .engine
+        .recommendation(&symbol, &ContractOverrides::default())
+    {
         Ok(value) => {
             state.cache.put(&symbol, value.clone());
             json_response(200, "OK", &value)
@@ -83,7 +102,11 @@ fn route_history(state: &AppState, req: &ParsedRequest) -> RenderedResponse {
         && !s.is_empty()
         && !valid_symbol(s)
     {
-        return detail_error(422, "Unprocessable Entity", "symbol must be 1-12 characters of [A-Za-z0-9._-]");
+        return detail_error(
+            422,
+            "Unprocessable Entity",
+            "symbol must be 1-12 characters of [A-Za-z0-9._-]",
+        );
     }
     let symbol_ref = symbol.as_deref().filter(|s| !s.is_empty());
     match state.engine.recent(limit, symbol_ref) {
@@ -95,7 +118,9 @@ fn route_history(state: &AppState, req: &ParsedRequest) -> RenderedResponse {
 fn route_replay(state: &AppState, decision_id: &str) -> RenderedResponse {
     match state.engine.replay(decision_id) {
         Ok(value) => json_response(200, "OK", &value),
-        Err(EngineError::DecisionNotFound(id)) => detail_error(404, "Not Found", format!("decision not found: {id}")),
+        Err(EngineError::DecisionNotFound(id)) => {
+            detail_error(404, "Not Found", format!("decision not found: {id}"))
+        }
         Err(e) => detail_error(500, "Internal Server Error", format!("{e}")),
     }
 }
@@ -106,7 +131,11 @@ fn route_replay(state: &AppState, decision_id: &str) -> RenderedResponse {
 /// unrecognized path.
 pub fn handle(state: &AppState, req: &ParsedRequest) -> RenderedResponse {
     if req.method != "GET" {
-        return detail_error(405, "Method Not Allowed", format!("{} is not supported", req.method));
+        return detail_error(
+            405,
+            "Method Not Allowed",
+            format!("{} is not supported", req.method),
+        );
     }
     if req.path == "/" {
         return html_response(INDEX_HTML);
@@ -158,7 +187,10 @@ mod tests {
 
     #[test]
     fn parse_positive_i64_falls_back_to_default_on_garbage() {
-        assert_eq!(parse_positive_i64(Some(&"not-a-number".to_string()), 20), 20);
+        assert_eq!(
+            parse_positive_i64(Some(&"not-a-number".to_string()), 20),
+            20
+        );
         assert_eq!(parse_positive_i64(Some(&"5".to_string()), 20), 5);
         assert_eq!(parse_positive_i64(None, 20), 20);
     }

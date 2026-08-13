@@ -11,7 +11,10 @@ pub enum CoreError {
     /// `auto_build` is disabled and the binary is not present.
     BinaryNotFound(std::path::PathBuf),
     Timeout(Duration),
-    NonZeroExit { code: Option<i32>, stderr: String },
+    NonZeroExit {
+        code: Option<i32>,
+        stderr: String,
+    },
     InvalidJson(String),
 }
 
@@ -20,13 +23,24 @@ impl fmt::Display for CoreError {
         match self {
             Self::Io(err) => write!(f, "I/O error running the C++ core: {err}"),
             Self::NoToolchainFound => {
-                write!(f, "cmake, g++, or clang++ is required to build the C++ core")
+                write!(
+                    f,
+                    "cmake, g++, or clang++ is required to build the C++ core"
+                )
             }
             Self::BuildSucceededButBinaryMissing(path) => {
-                write!(f, "build completed but core binary was not found at {}", path.display())
+                write!(
+                    f,
+                    "build completed but core binary was not found at {}",
+                    path.display()
+                )
             }
             Self::BinaryNotFound(path) => {
-                write!(f, "core binary not found: {} (auto-build is disabled)", path.display())
+                write!(
+                    f,
+                    "core binary not found: {} (auto-build is disabled)",
+                    path.display()
+                )
             }
             Self::Timeout(d) => write!(f, "C++ core timed out after {:.1}s", d.as_secs_f64()),
             Self::NonZeroExit { code, stderr } => {
@@ -36,7 +50,9 @@ impl fmt::Display for CoreError {
                     write!(f, "{}", stderr.trim())
                 }
             }
-            Self::InvalidJson(msg) => write!(f, "C++ core returned invalid or incomplete JSON: {msg}"),
+            Self::InvalidJson(msg) => {
+                write!(f, "C++ core returned invalid or incomplete JSON: {msg}")
+            }
         }
     }
 }

@@ -66,7 +66,10 @@ pub fn run_core(
     let output = run_command_with_timeout(&mut command, timeout)?;
 
     if !output.status.success() {
-        return Err(CoreError::NonZeroExit { code: output.status.code(), stderr: output.stderr });
+        return Err(CoreError::NonZeroExit {
+            code: output.status.code(),
+            stderr: output.stderr,
+        });
     }
 
     serde_json::from_str(&output.stdout).map_err(|e| CoreError::InvalidJson(e.to_string()))
@@ -80,7 +83,14 @@ mod tests {
 
     fn find_repo_root() -> PathBuf {
         // rust/crates/smart-hedge-core-bridge -> repo root is 3 levels up.
-        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf()
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf()
     }
 
     /// Integration test against the real C++ binary. Skips (passes
@@ -104,8 +114,14 @@ mod tests {
             return;
         }
 
-        let loaded = smart_hedge_config::load_config(None, &EnvOverrides::default(), &root).unwrap();
-        let contract = loaded.config.contracts.get("SPY").expect("default config has an SPY contract").clone();
+        let loaded =
+            smart_hedge_config::load_config(None, &EnvOverrides::default(), &root).unwrap();
+        let contract = loaded
+            .config
+            .contracts
+            .get("SPY")
+            .expect("default config has an SPY contract")
+            .clone();
 
         let result = run_core(&loaded, &root, &cpp_source, &contract, 100.0, 100.0);
         let response = match result {

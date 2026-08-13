@@ -6,16 +6,46 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     BuildCore,
-    Once { symbol: String, overrides: ContractOverrideArgs, model: Option<String> },
-    Loop { symbol: String, overrides: ContractOverrideArgs, interval: f64, model: Option<String> },
-    Replay { decision_id: String },
-    Recent { limit: i64, symbol: Option<String> },
-    SelfTest { symbol: String },
-    Serve { host: Option<String>, port: Option<u16> },
+    Once {
+        symbol: String,
+        overrides: ContractOverrideArgs,
+        model: Option<String>,
+    },
+    Loop {
+        symbol: String,
+        overrides: ContractOverrideArgs,
+        interval: f64,
+        model: Option<String>,
+    },
+    Replay {
+        decision_id: String,
+    },
+    Recent {
+        limit: i64,
+        symbol: Option<String>,
+    },
+    SelfTest {
+        symbol: String,
+    },
+    Serve {
+        host: Option<String>,
+        port: Option<u16>,
+    },
     Mcp,
-    GuardDemo { symbol: String, overrides: ContractOverrideArgs, intelligence_binary: Option<PathBuf>, guard_binary: Option<PathBuf> },
-    Portfolio { symbols: Vec<String> },
-    Backtest { symbol: String, days: u32, start: Option<String> },
+    GuardDemo {
+        symbol: String,
+        overrides: ContractOverrideArgs,
+        intelligence_binary: Option<PathBuf>,
+        guard_binary: Option<PathBuf>,
+    },
+    Portfolio {
+        symbols: Vec<String>,
+    },
+    Backtest {
+        symbol: String,
+        days: u32,
+        start: Option<String>,
+    },
     Autonomous {
         symbol: String,
         overrides: ContractOverrideArgs,
@@ -57,12 +87,21 @@ pub enum ArgsError {
 impl fmt::Display for ArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingCommand => write!(f, "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo, portfolio, backtest, autonomous)"),
+            Self::MissingCommand => write!(
+                f,
+                "a command is required (build-core, once, loop, replay, recent, serve, mcp, self-test, guard-demo, portfolio, backtest, autonomous)"
+            ),
             Self::UnknownCommand(c) => write!(f, "unknown command: {c}"),
-            Self::UnknownFlag { command, flag } => write!(f, "unknown flag {flag} for command {command}"),
+            Self::UnknownFlag { command, flag } => {
+                write!(f, "unknown flag {flag} for command {command}")
+            }
             Self::MissingValueFor(flag) => write!(f, "{flag} requires a value"),
-            Self::InvalidNumber { flag, value } => write!(f, "{flag} expects a number, got {value}"),
-            Self::MissingPositional { command, name } => write!(f, "{command} requires a {name} argument"),
+            Self::InvalidNumber { flag, value } => {
+                write!(f, "{flag} expects a number, got {value}")
+            }
+            Self::MissingPositional { command, name } => {
+                write!(f, "{command} requires a {name} argument")
+            }
         }
     }
 }
@@ -70,11 +109,17 @@ impl fmt::Display for ArgsError {
 impl std::error::Error for ArgsError {}
 
 fn parse_f64(flag: &str, value: &str) -> Result<f64, ArgsError> {
-    value.parse::<f64>().map_err(|_| ArgsError::InvalidNumber { flag: flag.to_string(), value: value.to_string() })
+    value.parse::<f64>().map_err(|_| ArgsError::InvalidNumber {
+        flag: flag.to_string(),
+        value: value.to_string(),
+    })
 }
 
 fn parse_i64(flag: &str, value: &str) -> Result<i64, ArgsError> {
-    value.parse::<i64>().map_err(|_| ArgsError::InvalidNumber { flag: flag.to_string(), value: value.to_string() })
+    value.parse::<i64>().map_err(|_| ArgsError::InvalidNumber {
+        flag: flag.to_string(),
+        value: value.to_string(),
+    })
 }
 
 /// Consumes `--flag value` (or `--flag=value`) pairs from `tail`, returning
@@ -89,21 +134,31 @@ struct FlagCursor<'a> {
 
 impl<'a> FlagCursor<'a> {
     fn new(tokens: &'a [String]) -> Self {
-        FlagCursor { tokens, positionals: Vec::new() }
+        FlagCursor {
+            tokens,
+            positionals: Vec::new(),
+        }
     }
 
     /// Parses every token into `(flag_name, value)` pairs for `--name value`
     /// or `--name=value`, plus a leftover positional list, then hands each
     /// pair to `handle`. `handle` returns `Ok(true)` if it recognized the
     /// flag, `Ok(false)` if the caller should report it as unknown.
-    fn run(mut self, command: &str, mut handle: impl FnMut(&str, &str) -> Result<bool, ArgsError>) -> Result<Vec<&'a str>, ArgsError> {
+    fn run(
+        mut self,
+        command: &str,
+        mut handle: impl FnMut(&str, &str) -> Result<bool, ArgsError>,
+    ) -> Result<Vec<&'a str>, ArgsError> {
         let mut i = 0;
         while i < self.tokens.len() {
             let token = self.tokens[i].as_str();
             if let Some(rest) = token.strip_prefix("--") {
                 if let Some((name, value)) = rest.split_once('=') {
                     if !handle(name, value)? {
-                        return Err(ArgsError::UnknownFlag { command: command.to_string(), flag: format!("--{name}") });
+                        return Err(ArgsError::UnknownFlag {
+                            command: command.to_string(),
+                            flag: format!("--{name}"),
+                        });
                     }
                     i += 1;
                 } else {
@@ -112,7 +167,10 @@ impl<'a> FlagCursor<'a> {
                         .get(i + 1)
                         .ok_or_else(|| ArgsError::MissingValueFor(format!("--{rest}")))?;
                     if !handle(rest, value)? {
-                        return Err(ArgsError::UnknownFlag { command: command.to_string(), flag: format!("--{rest}") });
+                        return Err(ArgsError::UnknownFlag {
+                            command: command.to_string(),
+                            flag: format!("--{rest}"),
+                        });
                     }
                     i += 2;
                 }
@@ -125,7 +183,10 @@ impl<'a> FlagCursor<'a> {
     }
 }
 
-fn parse_contract_overrides(tail: &[String], command: &str) -> Result<(String, ContractOverrideArgs, Option<String>), ArgsError> {
+fn parse_contract_overrides(
+    tail: &[String],
+    command: &str,
+) -> Result<(String, ContractOverrideArgs, Option<String>), ArgsError> {
     let mut symbol = "SPY".to_string();
     let mut overrides = ContractOverrideArgs::default();
     let mut model: Option<String> = None;
@@ -135,7 +196,9 @@ fn parse_contract_overrides(tail: &[String], command: &str) -> Result<(String, C
             "strike" => overrides.strike = Some(parse_f64("--strike", value)?),
             "vol" => overrides.vol = Some(parse_f64("--vol", value)?),
             "days" => overrides.days = Some(parse_f64("--days", value)?),
-            "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
+            "current-shares" => {
+                overrides.current_shares = Some(parse_f64("--current-shares", value)?)
+            }
             "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
             "model" => model = Some(value.to_string()),
             _ => return Ok(false),
@@ -152,7 +215,9 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
     let mut i = 0;
     while i < raw.len() {
         if raw[i] == "--config" {
-            let value = raw.get(i + 1).ok_or_else(|| ArgsError::MissingValueFor("--config".to_string()))?;
+            let value = raw
+                .get(i + 1)
+                .ok_or_else(|| ArgsError::MissingValueFor("--config".to_string()))?;
             config = Some(PathBuf::from(value));
             i += 2;
         } else if let Some(value) = raw[i].strip_prefix("--config=") {
@@ -172,7 +237,11 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
         "build-core" => Command::BuildCore,
         "once" => {
             let (symbol, overrides, model) = parse_contract_overrides(tail, "once")?;
-            Command::Once { symbol, overrides, model }
+            Command::Once {
+                symbol,
+                overrides,
+                model,
+            }
         }
         "loop" => {
             let mut interval = 15.0;
@@ -185,7 +254,9 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                     "strike" => overrides.strike = Some(parse_f64("--strike", value)?),
                     "vol" => overrides.vol = Some(parse_f64("--vol", value)?),
                     "days" => overrides.days = Some(parse_f64("--days", value)?),
-                    "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
+                    "current-shares" => {
+                        overrides.current_shares = Some(parse_f64("--current-shares", value)?)
+                    }
                     "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
                     "interval" => interval = parse_f64("--interval", value)?,
                     "model" => model = Some(value.to_string()),
@@ -193,14 +264,24 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                 }
                 Ok(true)
             })?;
-            Command::Loop { symbol: symbol.to_uppercase(), overrides, interval, model }
+            Command::Loop {
+                symbol: symbol.to_uppercase(),
+                overrides,
+                interval,
+                model,
+            }
         }
         "replay" => {
             let positionals = FlagCursor::new(tail).run("replay", |_, _| Ok(false))?;
             let decision_id = positionals
                 .first()
-                .ok_or_else(|| ArgsError::MissingPositional { command: "replay".to_string(), name: "decision_id".to_string() })?;
-            Command::Replay { decision_id: decision_id.to_string() }
+                .ok_or_else(|| ArgsError::MissingPositional {
+                    command: "replay".to_string(),
+                    name: "decision_id".to_string(),
+                })?;
+            Command::Replay {
+                decision_id: decision_id.to_string(),
+            }
         }
         "recent" => {
             let mut limit = 20i64;
@@ -208,7 +289,13 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
             FlagCursor::new(tail).run("recent", |name, value| {
                 match name {
                     "limit" => limit = parse_i64("--limit", value)?,
-                    "symbol" => symbol = if value.is_empty() { None } else { Some(value.to_uppercase()) },
+                    "symbol" => {
+                        symbol = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value.to_uppercase())
+                        }
+                    }
                     _ => return Ok(false),
                 }
                 Ok(true)
@@ -224,7 +311,9 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                 }
                 Ok(true)
             })?;
-            Command::SelfTest { symbol: symbol.to_uppercase() }
+            Command::SelfTest {
+                symbol: symbol.to_uppercase(),
+            }
         }
         "serve" => {
             let mut host: Option<String> = None;
@@ -256,7 +345,9 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                     "strike" => overrides.strike = Some(parse_f64("--strike", value)?),
                     "vol" => overrides.vol = Some(parse_f64("--vol", value)?),
                     "days" => overrides.days = Some(parse_f64("--days", value)?),
-                    "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
+                    "current-shares" => {
+                        overrides.current_shares = Some(parse_f64("--current-shares", value)?)
+                    }
                     "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
                     "intelligence-binary" => intelligence_binary = Some(PathBuf::from(value)),
                     "guard-binary" => guard_binary = Some(PathBuf::from(value)),
@@ -264,7 +355,12 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                 }
                 Ok(true)
             })?;
-            Command::GuardDemo { symbol: symbol.to_uppercase(), overrides, intelligence_binary, guard_binary }
+            Command::GuardDemo {
+                symbol: symbol.to_uppercase(),
+                overrides,
+                intelligence_binary,
+                guard_binary,
+            }
         }
         "portfolio" => {
             let positionals = FlagCursor::new(tail).run("portfolio", |_, _| Ok(false))?;
@@ -284,7 +380,11 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                 }
                 Ok(true)
             })?;
-            Command::Backtest { symbol: symbol.to_uppercase(), days, start }
+            Command::Backtest {
+                symbol: symbol.to_uppercase(),
+                days,
+                start,
+            }
         }
         "autonomous" => {
             let mut symbol = "SPY".to_string();
@@ -302,15 +402,24 @@ pub fn parse_args(raw: &[String]) -> Result<ParsedArgs, ArgsError> {
                     "strike" => overrides.strike = Some(parse_f64("--strike", value)?),
                     "vol" => overrides.vol = Some(parse_f64("--vol", value)?),
                     "days" => overrides.days = Some(parse_f64("--days", value)?),
-                    "current-shares" => overrides.current_shares = Some(parse_f64("--current-shares", value)?),
+                    "current-shares" => {
+                        overrides.current_shares = Some(parse_f64("--current-shares", value)?)
+                    }
                     "contracts" => overrides.contracts = Some(parse_i64("--contracts", value)?),
                     "interval" => interval = parse_f64("--interval", value)?,
                     "model" => model = Some(value.to_string()),
                     "intelligence-binary" => intelligence_binary = Some(PathBuf::from(value)),
                     "guard-binary" => guard_binary = Some(PathBuf::from(value)),
-                    "max-iterations" => max_iterations = Some(parse_i64("--max-iterations", value)?.clamp(0, i64::from(u32::MAX)) as u32),
+                    "max-iterations" => {
+                        max_iterations = Some(
+                            parse_i64("--max-iterations", value)?.clamp(0, i64::from(u32::MAX))
+                                as u32,
+                        )
+                    }
                     "max-consecutive-errors" => {
-                        max_consecutive_errors = parse_i64("--max-consecutive-errors", value)?.clamp(1, i64::from(u32::MAX)) as u32
+                        max_consecutive_errors = parse_i64("--max-consecutive-errors", value)?
+                            .clamp(1, i64::from(u32::MAX))
+                            as u32
                     }
                     "stop-file" => stop_file = Some(PathBuf::from(value)),
                     _ => return Ok(false),
@@ -350,7 +459,10 @@ mod tests {
 
     #[test]
     fn unknown_command_is_reported_by_name() {
-        assert_eq!(parse_args(&args(&["bogus"])), Err(ArgsError::UnknownCommand("bogus".to_string())));
+        assert_eq!(
+            parse_args(&args(&["bogus"])),
+            Err(ArgsError::UnknownCommand("bogus".to_string()))
+        );
     }
 
     #[test]
@@ -377,7 +489,11 @@ mod tests {
         let parsed = parse_args(&args(&["once"])).unwrap();
         assert_eq!(
             parsed.command,
-            Command::Once { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), model: None }
+            Command::Once {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                model: None
+            }
         );
     }
 
@@ -386,14 +502,28 @@ mod tests {
         let parsed = parse_args(&args(&["once", "--symbol", "qqq"])).unwrap();
         assert_eq!(
             parsed.command,
-            Command::Once { symbol: "QQQ".to_string(), overrides: ContractOverrideArgs::default(), model: None }
+            Command::Once {
+                symbol: "QQQ".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                model: None
+            }
         );
     }
 
     #[test]
     fn once_collects_all_overrides() {
         let parsed = parse_args(&args(&[
-            "once", "--strike", "150", "--vol", "0.3", "--days", "10", "--current-shares", "-5", "--contracts", "2",
+            "once",
+            "--strike",
+            "150",
+            "--vol",
+            "0.3",
+            "--days",
+            "10",
+            "--current-shares",
+            "-5",
+            "--contracts",
+            "2",
         ]))
         .unwrap();
         let expected = ContractOverrideArgs {
@@ -403,19 +533,38 @@ mod tests {
             current_shares: Some(-5.0),
             contracts: Some(2),
         };
-        assert_eq!(parsed.command, Command::Once { symbol: "SPY".to_string(), overrides: expected, model: None });
+        assert_eq!(
+            parsed.command,
+            Command::Once {
+                symbol: "SPY".to_string(),
+                overrides: expected,
+                model: None
+            }
+        );
     }
 
     #[test]
     fn once_rejects_a_non_numeric_strike() {
         let result = parse_args(&args(&["once", "--strike", "abc"]));
-        assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--strike".to_string(), value: "abc".to_string() }));
+        assert_eq!(
+            result,
+            Err(ArgsError::InvalidNumber {
+                flag: "--strike".to_string(),
+                value: "abc".to_string()
+            })
+        );
     }
 
     #[test]
     fn once_rejects_an_unknown_flag() {
         let result = parse_args(&args(&["once", "--bogus", "1"]));
-        assert_eq!(result, Err(ArgsError::UnknownFlag { command: "once".to_string(), flag: "--bogus".to_string() }));
+        assert_eq!(
+            result,
+            Err(ArgsError::UnknownFlag {
+                command: "once".to_string(),
+                flag: "--bogus".to_string()
+            })
+        );
     }
 
     #[test]
@@ -423,7 +572,11 @@ mod tests {
         let parsed = parse_args(&args(&["once", "--model", "aggressive"])).unwrap();
         assert_eq!(
             parsed.command,
-            Command::Once { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), model: Some("aggressive".to_string()) }
+            Command::Once {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                model: Some("aggressive".to_string())
+            }
         );
     }
 
@@ -432,7 +585,12 @@ mod tests {
         let parsed = parse_args(&args(&["loop"])).unwrap();
         assert_eq!(
             parsed.command,
-            Command::Loop { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), interval: 15.0, model: None }
+            Command::Loop {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                interval: 15.0,
+                model: None
+            }
         );
     }
 
@@ -441,7 +599,12 @@ mod tests {
         let parsed = parse_args(&args(&["loop", "--interval", "5"])).unwrap();
         assert_eq!(
             parsed.command,
-            Command::Loop { symbol: "SPY".to_string(), overrides: ContractOverrideArgs::default(), interval: 5.0, model: None }
+            Command::Loop {
+                symbol: "SPY".to_string(),
+                overrides: ContractOverrideArgs::default(),
+                interval: 5.0,
+                model: None
+            }
         );
     }
 
@@ -462,55 +625,107 @@ mod tests {
     #[test]
     fn replay_requires_a_decision_id_positional() {
         let result = parse_args(&args(&["replay"]));
-        assert_eq!(result, Err(ArgsError::MissingPositional { command: "replay".to_string(), name: "decision_id".to_string() }));
+        assert_eq!(
+            result,
+            Err(ArgsError::MissingPositional {
+                command: "replay".to_string(),
+                name: "decision_id".to_string()
+            })
+        );
     }
 
     #[test]
     fn replay_captures_the_decision_id() {
         let parsed = parse_args(&args(&["replay", "abc-123"])).unwrap();
-        assert_eq!(parsed.command, Command::Replay { decision_id: "abc-123".to_string() });
+        assert_eq!(
+            parsed.command,
+            Command::Replay {
+                decision_id: "abc-123".to_string()
+            }
+        );
     }
 
     #[test]
     fn recent_defaults_to_limit_twenty_and_no_symbol_filter() {
         let parsed = parse_args(&args(&["recent"])).unwrap();
-        assert_eq!(parsed.command, Command::Recent { limit: 20, symbol: None });
+        assert_eq!(
+            parsed.command,
+            Command::Recent {
+                limit: 20,
+                symbol: None
+            }
+        );
     }
 
     #[test]
     fn recent_symbol_filter_is_uppercased() {
         let parsed = parse_args(&args(&["recent", "--symbol", "qqq", "--limit", "5"])).unwrap();
-        assert_eq!(parsed.command, Command::Recent { limit: 5, symbol: Some("QQQ".to_string()) });
+        assert_eq!(
+            parsed.command,
+            Command::Recent {
+                limit: 5,
+                symbol: Some("QQQ".to_string())
+            }
+        );
     }
 
     #[test]
     fn recent_empty_symbol_is_no_filter_matching_python_or_none() {
         let parsed = parse_args(&args(&["recent", "--symbol", ""])).unwrap();
-        assert_eq!(parsed.command, Command::Recent { limit: 20, symbol: None });
+        assert_eq!(
+            parsed.command,
+            Command::Recent {
+                limit: 20,
+                symbol: None
+            }
+        );
     }
 
     #[test]
     fn self_test_defaults_to_spy() {
         let parsed = parse_args(&args(&["self-test"])).unwrap();
-        assert_eq!(parsed.command, Command::SelfTest { symbol: "SPY".to_string() });
+        assert_eq!(
+            parsed.command,
+            Command::SelfTest {
+                symbol: "SPY".to_string()
+            }
+        );
     }
 
     #[test]
     fn serve_defaults_to_no_host_or_port_override() {
         let parsed = parse_args(&args(&["serve"])).unwrap();
-        assert_eq!(parsed.command, Command::Serve { host: None, port: None });
+        assert_eq!(
+            parsed.command,
+            Command::Serve {
+                host: None,
+                port: None
+            }
+        );
     }
 
     #[test]
     fn serve_accepts_host_and_port_overrides() {
         let parsed = parse_args(&args(&["serve", "--host", "0.0.0.0", "--port", "9000"])).unwrap();
-        assert_eq!(parsed.command, Command::Serve { host: Some("0.0.0.0".to_string()), port: Some(9000) });
+        assert_eq!(
+            parsed.command,
+            Command::Serve {
+                host: Some("0.0.0.0".to_string()),
+                port: Some(9000)
+            }
+        );
     }
 
     #[test]
     fn serve_rejects_a_non_numeric_port() {
         let result = parse_args(&args(&["serve", "--port", "not-a-port"]));
-        assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--port".to_string(), value: "not-a-port".to_string() }));
+        assert_eq!(
+            result,
+            Err(ArgsError::InvalidNumber {
+                flag: "--port".to_string(),
+                value: "not-a-port".to_string()
+            })
+        );
     }
 
     #[test]
@@ -521,7 +736,10 @@ mod tests {
     #[test]
     fn missing_value_for_a_flag_is_reported() {
         let result = parse_args(&args(&["once", "--strike"]));
-        assert_eq!(result, Err(ArgsError::MissingValueFor("--strike".to_string())));
+        assert_eq!(
+            result,
+            Err(ArgsError::MissingValueFor("--strike".to_string()))
+        );
     }
 
     #[test]
@@ -568,28 +786,59 @@ mod tests {
     #[test]
     fn portfolio_symbols_are_uppercased() {
         let parsed = parse_args(&args(&["portfolio", "spy", "qqq"])).unwrap();
-        assert_eq!(parsed.command, Command::Portfolio { symbols: vec!["SPY".to_string(), "QQQ".to_string()] });
+        assert_eq!(
+            parsed.command,
+            Command::Portfolio {
+                symbols: vec!["SPY".to_string(), "QQQ".to_string()]
+            }
+        );
     }
 
     #[test]
     fn backtest_defaults_to_spy_thirty_days_no_explicit_start() {
         let parsed = parse_args(&args(&["backtest"])).unwrap();
-        assert_eq!(parsed.command, Command::Backtest { symbol: "SPY".to_string(), days: 30, start: None });
+        assert_eq!(
+            parsed.command,
+            Command::Backtest {
+                symbol: "SPY".to_string(),
+                days: 30,
+                start: None
+            }
+        );
     }
 
     #[test]
     fn backtest_accepts_symbol_days_and_start_overrides() {
-        let parsed = parse_args(&args(&["backtest", "--symbol", "qqq", "--days", "10", "--start", "2026-01-01T00:00:00Z"])).unwrap();
+        let parsed = parse_args(&args(&[
+            "backtest",
+            "--symbol",
+            "qqq",
+            "--days",
+            "10",
+            "--start",
+            "2026-01-01T00:00:00Z",
+        ]))
+        .unwrap();
         assert_eq!(
             parsed.command,
-            Command::Backtest { symbol: "QQQ".to_string(), days: 10, start: Some("2026-01-01T00:00:00Z".to_string()) }
+            Command::Backtest {
+                symbol: "QQQ".to_string(),
+                days: 10,
+                start: Some("2026-01-01T00:00:00Z".to_string())
+            }
         );
     }
 
     #[test]
     fn backtest_rejects_a_non_numeric_days() {
         let result = parse_args(&args(&["backtest", "--days", "abc"]));
-        assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--days".to_string(), value: "abc".to_string() }));
+        assert_eq!(
+            result,
+            Err(ArgsError::InvalidNumber {
+                flag: "--days".to_string(),
+                value: "abc".to_string()
+            })
+        );
     }
 
     #[test]
@@ -652,13 +901,25 @@ mod tests {
     #[test]
     fn autonomous_max_consecutive_errors_cannot_be_parsed_below_one() {
         let parsed = parse_args(&args(&["autonomous", "--max-consecutive-errors", "0"])).unwrap();
-        let Command::Autonomous { max_consecutive_errors, .. } = parsed.command else { panic!("expected Autonomous") };
+        let Command::Autonomous {
+            max_consecutive_errors,
+            ..
+        } = parsed.command
+        else {
+            panic!("expected Autonomous")
+        };
         assert_eq!(max_consecutive_errors, 1);
     }
 
     #[test]
     fn autonomous_rejects_a_non_numeric_max_iterations() {
         let result = parse_args(&args(&["autonomous", "--max-iterations", "abc"]));
-        assert_eq!(result, Err(ArgsError::InvalidNumber { flag: "--max-iterations".to_string(), value: "abc".to_string() }));
+        assert_eq!(
+            result,
+            Err(ArgsError::InvalidNumber {
+                flag: "--max-iterations".to_string(),
+                value: "abc".to_string()
+            })
+        );
     }
 }

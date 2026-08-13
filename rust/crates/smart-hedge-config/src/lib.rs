@@ -14,7 +14,7 @@ pub mod types;
 pub use defaults::default_config_json;
 pub use env_overrides::EnvOverrides;
 pub use error::ConfigError;
-pub use loader::{load_config, LoadedConfig};
+pub use loader::{LoadedConfig, load_config};
 pub use merge::deep_merge;
 pub use paths::resolve_project_path;
 pub use strike_spec::StrikeSpec;

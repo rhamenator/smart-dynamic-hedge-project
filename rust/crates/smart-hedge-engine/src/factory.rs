@@ -40,11 +40,18 @@ pub fn build_advisor(loaded: &LoadedConfig) -> Result<Box<dyn Advisor>, EngineEr
 /// an error, not a silent fallback to whatever the legacy single adviser
 /// happens to be (that would defeat the point of asking for a specific
 /// named model).
-pub fn build_advisor_by_name(loaded: &LoadedConfig, name: &str) -> Result<Box<dyn Advisor>, EngineError> {
+pub fn build_advisor_by_name(
+    loaded: &LoadedConfig,
+    name: &str,
+) -> Result<Box<dyn Advisor>, EngineError> {
     if let Some(uri_str) = loaded.config.model.models.get(name) {
-        let uri = ModelUri::parse(uri_str)
-            .map_err(|e| EngineError::AdvisorConstructionFailed(smart_hedge_model_advisor::AdvisorError(e.to_string())))?;
-        return smart_hedge_model_advisor::build_advisor_from_uri(loaded, &uri).map_err(EngineError::AdvisorConstructionFailed);
+        let uri = ModelUri::parse(uri_str).map_err(|e| {
+            EngineError::AdvisorConstructionFailed(smart_hedge_model_advisor::AdvisorError(
+                e.to_string(),
+            ))
+        })?;
+        return smart_hedge_model_advisor::build_advisor_from_uri(loaded, &uri)
+            .map_err(EngineError::AdvisorConstructionFailed);
     }
     if name == "default" {
         return build_advisor(loaded);
@@ -60,11 +67,16 @@ mod tests {
     use smart_hedge_config::EnvOverrides;
 
     fn config_with_provider_kind(kind: &str) -> LoadedConfig {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-engine-factory-test-{}-{}", kind, std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-engine-factory-test-{}-{}",
+            kind,
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, format!(r#"{{"provider": {{"kind": "{kind}"}}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         loaded
     }
@@ -80,11 +92,16 @@ mod tests {
         // nothing to do with the code under test.
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-engine-factory-model-test-{}-{}-{n}", kind, std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-engine-factory-model-test-{}-{}-{n}",
+            kind,
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, format!(r#"{{"model": {{"kind": "{kind}"}}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         loaded
     }
@@ -92,11 +109,19 @@ mod tests {
     fn config_with_models_registry(models_json: &str) -> LoadedConfig {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-engine-factory-router-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-engine-factory-router-test-{}-{n}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
-        std::fs::write(&path, format!(r#"{{"model": {{"models": {models_json}}}}}"#)).unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
+        std::fs::write(
+            &path,
+            format!(r#"{{"model": {{"models": {models_json}}}}}"#),
+        )
+        .unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&path), &EnvOverrides::default(), &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         loaded
     }
@@ -141,7 +166,10 @@ mod tests {
     fn openai_advisor_kind_without_configuration_fails_fast() {
         let loaded = config_with_model_kind("openai");
         let result = build_advisor(&loaded);
-        assert!(matches!(result, Err(EngineError::AdvisorConstructionFailed(_))));
+        assert!(matches!(
+            result,
+            Err(EngineError::AdvisorConstructionFailed(_))
+        ));
     }
 
     #[test]
@@ -169,7 +197,10 @@ mod tests {
     fn build_advisor_by_name_a_registered_openai_uri_without_credentials_fails_fast() {
         let loaded = config_with_models_registry(r#"{"aggressive": "openai://gpt-4.1"}"#);
         let result = build_advisor_by_name(&loaded, "aggressive");
-        assert!(matches!(result, Err(EngineError::AdvisorConstructionFailed(_))));
+        assert!(matches!(
+            result,
+            Err(EngineError::AdvisorConstructionFailed(_))
+        ));
     }
 
     #[test]
@@ -181,6 +212,9 @@ mod tests {
         // fallback path).
         let loaded = config_with_models_registry(r#"{"default": "openai://gpt-4.1"}"#);
         let result = build_advisor_by_name(&loaded, "default");
-        assert!(matches!(result, Err(EngineError::AdvisorConstructionFailed(_))));
+        assert!(matches!(
+            result,
+            Err(EngineError::AdvisorConstructionFailed(_))
+        ));
     }
 }

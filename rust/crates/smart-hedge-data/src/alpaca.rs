@@ -34,15 +34,28 @@ impl AlpacaReadOnlyProvider {
     /// parameters sidesteps that entirely (same pattern as
     /// `smart_hedge_config::EnvOverrides`). `from_env` below is the thin
     /// wrapper that actually reads the process environment.
-    pub fn new(loaded: LoadedConfig, api_key: String, api_secret: String) -> Result<Self, DataError> {
+    pub fn new(
+        loaded: LoadedConfig,
+        api_key: String,
+        api_secret: String,
+    ) -> Result<Self, DataError> {
         if api_key.is_empty() || api_secret.is_empty() {
-            return Err(DataError::MissingEnvVar("ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY"));
+            return Err(DataError::MissingEnvVar(
+                "ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY",
+            ));
         }
         let alpaca = &loaded.config.provider.alpaca;
         let base = alpaca.data_base_url.trim_end_matches('/').to_string();
         let feed = alpaca.feed.clone();
         let timeout = Duration::from_secs_f64(alpaca.timeout_seconds.max(0.0));
-        Ok(AlpacaReadOnlyProvider { loaded, api_key, api_secret, base, feed, timeout })
+        Ok(AlpacaReadOnlyProvider {
+            loaded,
+            api_key,
+            api_secret,
+            base,
+            feed,
+            timeout,
+        })
     }
 
     pub fn from_env(loaded: LoadedConfig) -> Result<Self, DataError> {
@@ -64,10 +77,14 @@ impl AlpacaReadOnlyProvider {
         }
         let response = request.call().map_err(|e| DataError::Http(e.to_string()))?;
         // Matches Python's `response.read(2_000_000)` cap — see `http_util`.
-        let text = crate::http_util::read_capped_body(response, 2_000_000).map_err(DataError::Http)?;
-        let decoded: Value = serde_json::from_str(&text).map_err(|e| DataError::InvalidJson(e.to_string()))?;
+        let text =
+            crate::http_util::read_capped_body(response, 2_000_000).map_err(DataError::Http)?;
+        let decoded: Value =
+            serde_json::from_str(&text).map_err(|e| DataError::InvalidJson(e.to_string()))?;
         if !decoded.is_object() {
-            return Err(DataError::UnexpectedResponse("expected a JSON object".to_string()));
+            return Err(DataError::UnexpectedResponse(
+                "expected a JSON object".to_string(),
+            ));
         }
         Ok(decoded)
     }
@@ -89,12 +106,16 @@ fn iso(value: &str) -> String {
 fn parse_bars(raw_bars_chronological: &[Value]) -> Result<Vec<Bar>, DataError> {
     let mut bars = Vec::new();
     for item in raw_bars_chronological {
-        let Some(map) = item.as_object() else { continue };
+        let Some(map) = item.as_object() else {
+            continue;
+        };
         if !["o", "h", "l", "c"].iter().all(|k| map.contains_key(*k)) {
             continue;
         }
         let field = |key: &str| -> Result<f64, DataError> {
-            map[key].as_f64().ok_or_else(|| DataError::UnexpectedResponse(format!("bar field {key} was not numeric")))
+            map[key].as_f64().ok_or_else(|| {
+                DataError::UnexpectedResponse(format!("bar field {key} was not numeric"))
+            })
         };
         let timestamp = match map.get("t").and_then(Value::as_str) {
             Some(s) if !s.is_empty() => iso(s),
@@ -115,14 +136,39 @@ fn parse_bars(raw_bars_chronological: &[Value]) -> Result<Vec<Bar>, DataError> {
 /// Port of the `Quote` construction inside `AlpacaReadOnlyProvider.snapshot`.
 /// `quote_json` is the `"quote"` sub-object of the quotes-latest response
 /// (may be absent/null, matching Python's `quote_payload.get("quote") or {}`).
-fn build_quote(symbol: &str, quote_json: &Value, last_bar: &Bar, feed: &str, market_state: &str) -> Quote {
+fn build_quote(
+    symbol: &str,
+    quote_json: &Value,
+    last_bar: &Bar,
+    feed: &str,
+    market_state: &str,
+) -> Quote {
     // `float(q.get("bp") or bars[-1].close)`: falls back on missing *or*
     // exactly-zero, matching Python's `or` truthiness (not just absence).
-    let bid = quote_json.get("bp").and_then(Value::as_f64).filter(|v| *v != 0.0).unwrap_or(last_bar.close);
-    let ask = quote_json.get("ap").and_then(Value::as_f64).filter(|v| *v != 0.0).unwrap_or(last_bar.close);
-    let raw_t = quote_json.get("t").and_then(Value::as_str).filter(|s| !s.is_empty());
+    let bid = quote_json
+        .get("bp")
+        .and_then(Value::as_f64)
+        .filter(|v| *v != 0.0)
+        .unwrap_or(last_bar.close);
+    let ask = quote_json
+        .get("ap")
+        .and_then(Value::as_f64)
+        .filter(|v| *v != 0.0)
+        .unwrap_or(last_bar.close);
+    let raw_t = quote_json
+        .get("t")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
     let timestamp = iso(raw_t.unwrap_or(last_bar.timestamp.as_str()));
-    Quote::new(symbol, bid, ask, last_bar.close, timestamp, format!("alpaca:{feed}"), market_state)
+    Quote::new(
+        symbol,
+        bid,
+        ask,
+        last_bar.close,
+        timestamp,
+        format!("alpaca:{feed}"),
+        market_state,
+    )
 }
 
 impl MarketDataProvider for AlpacaReadOnlyProvider {
@@ -132,10 +178,13 @@ impl MarketDataProvider for AlpacaReadOnlyProvider {
         let bar_limit = alpaca.bar_limit;
         let bar_timeframe = alpaca.bar_timeframe.clone();
 
-        let quote_payload =
-            self.get(&format!("/v2/stocks/{normalized}/quotes/latest"), &[("feed", self.feed.clone())])?;
+        let quote_payload = self.get(
+            &format!("/v2/stocks/{normalized}/quotes/latest"),
+            &[("feed", self.feed.clone())],
+        )?;
 
-        let seven_days_ago = TimestampUtc::from_unix(TimestampUtc::now().unix_seconds() - 7 * 86_400, 0);
+        let seven_days_ago =
+            TimestampUtc::from_unix(TimestampUtc::now().unix_seconds() - 7 * 86_400, 0);
         let bars_payload = self.get(
             &format!("/v2/stocks/{normalized}/bars"),
             &[
@@ -149,12 +198,18 @@ impl MarketDataProvider for AlpacaReadOnlyProvider {
         )?;
 
         let quote_json = quote_payload.get("quote").cloned().unwrap_or(Value::Null);
-        let mut raw_bars: Vec<Value> = bars_payload.get("bars").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut raw_bars: Vec<Value> = bars_payload
+            .get("bars")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         raw_bars.reverse(); // API returns descending (most recent first); we need chronological.
 
         let bars = parse_bars(&raw_bars)?;
         if bars.is_empty() {
-            return Err(DataError::UnexpectedResponse("market-data provider returned no bars".to_string()));
+            return Err(DataError::UnexpectedResponse(
+                "market-data provider returned no bars".to_string(),
+            ));
         }
 
         let last_bar = bars.last().expect("just checked non-empty");
@@ -180,24 +235,32 @@ mod tests {
     use smart_hedge_config::EnvOverrides;
 
     fn loaded_config() -> LoadedConfig {
-        smart_hedge_config::load_config(None, &EnvOverrides::default(), std::path::Path::new("/root")).unwrap()
+        smart_hedge_config::load_config(
+            None,
+            &EnvOverrides::default(),
+            std::path::Path::new("/root"),
+        )
+        .unwrap()
     }
 
     #[test]
     fn missing_api_key_is_rejected() {
-        let result = AlpacaReadOnlyProvider::new(loaded_config(), "".to_string(), "secret".to_string());
+        let result =
+            AlpacaReadOnlyProvider::new(loaded_config(), "".to_string(), "secret".to_string());
         assert!(matches!(result, Err(DataError::MissingEnvVar(_))));
     }
 
     #[test]
     fn missing_api_secret_is_rejected() {
-        let result = AlpacaReadOnlyProvider::new(loaded_config(), "key".to_string(), "".to_string());
+        let result =
+            AlpacaReadOnlyProvider::new(loaded_config(), "key".to_string(), "".to_string());
         assert!(matches!(result, Err(DataError::MissingEnvVar(_))));
     }
 
     #[test]
     fn valid_credentials_construct_successfully() {
-        let result = AlpacaReadOnlyProvider::new(loaded_config(), "key".to_string(), "secret".to_string());
+        let result =
+            AlpacaReadOnlyProvider::new(loaded_config(), "key".to_string(), "secret".to_string());
         assert!(result.is_ok());
     }
 
@@ -234,12 +297,25 @@ mod tests {
     }
 
     fn sample_bar() -> Bar {
-        Bar { timestamp: "2026-07-19T00:00:00Z".to_string(), open: 1.0, high: 2.0, low: 0.5, close: 1.5, volume: 10.0 }
+        Bar {
+            timestamp: "2026-07-19T00:00:00Z".to_string(),
+            open: 1.0,
+            high: 2.0,
+            low: 0.5,
+            close: 1.5,
+            volume: 10.0,
+        }
     }
 
     #[test]
     fn build_quote_uses_bp_ap_when_present_and_nonzero() {
-        let q = build_quote("SPY", &json!({"bp": 1.1, "ap": 1.2, "t": "2026-07-19T01:00:00Z"}), &sample_bar(), "iex", "open");
+        let q = build_quote(
+            "SPY",
+            &json!({"bp": 1.1, "ap": 1.2, "t": "2026-07-19T01:00:00Z"}),
+            &sample_bar(),
+            "iex",
+            "open",
+        );
         assert_eq!(q.bid, 1.1);
         assert_eq!(q.ask, 1.2);
     }
@@ -247,7 +323,13 @@ mod tests {
     #[test]
     fn build_quote_falls_back_to_last_close_when_bp_is_exactly_zero() {
         // Matches Python's `q.get("bp") or bars[-1].close` falsy-zero semantics.
-        let q = build_quote("SPY", &json!({"bp": 0.0, "ap": 1.2}), &sample_bar(), "iex", "open");
+        let q = build_quote(
+            "SPY",
+            &json!({"bp": 0.0, "ap": 1.2}),
+            &sample_bar(),
+            "iex",
+            "open",
+        );
         assert_eq!(q.bid, 1.5);
     }
 
@@ -297,19 +379,29 @@ mod tests {
             ),
         ]);
 
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-alpaca-e2e-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-alpaca-e2e-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
             &config_path,
-            format!(r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#),
+            format!(
+                r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#
+            ),
         )
         .unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir)
+                .unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
-        let provider = AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap();
-        let snapshot = provider.snapshot("spy").expect("snapshot should succeed against the mock server");
+        let provider =
+            AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap();
+        let snapshot = provider
+            .snapshot("spy")
+            .expect("snapshot should succeed against the mock server");
 
         assert_eq!(snapshot.symbol, "SPY");
         assert_eq!(snapshot.bars.len(), 2);
@@ -328,33 +420,50 @@ mod tests {
             (500, "text/plain", "internal error".to_string()),
         )]);
 
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-alpaca-e2e-err-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-alpaca-e2e-err-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
             &config_path,
-            format!(r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#),
+            format!(
+                r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#
+            ),
         )
         .unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir)
+                .unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
-        let provider = AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap();
+        let provider =
+            AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap();
         let result = provider.snapshot("SPY");
         assert!(matches!(result, Err(DataError::Http(_))));
     }
 
-    fn provider_against_mock(routes: Vec<(&'static str, (u16, &'static str, String))>) -> AlpacaReadOnlyProvider {
+    fn provider_against_mock(
+        routes: Vec<(&'static str, (u16, &'static str, String))>,
+    ) -> AlpacaReadOnlyProvider {
         let port = crate::mock_http_test_support::start(routes);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-data-alpaca-adversarial-{}-{port}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-data-alpaca-adversarial-{}-{port}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
             &config_path,
-            format!(r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#),
+            format!(
+                r#"{{"provider": {{"alpaca": {{"data_base_url": "http://127.0.0.1:{port}"}}}}}}"#
+            ),
         )
         .unwrap();
-        let loaded = smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir).unwrap();
+        let loaded =
+            smart_hedge_config::load_config(Some(&config_path), &EnvOverrides::default(), &dir)
+                .unwrap();
         std::fs::remove_dir_all(&dir).ok();
         AlpacaReadOnlyProvider::new(loaded, "key".to_string(), "secret".to_string()).unwrap()
     }
@@ -369,7 +478,8 @@ mod tests {
     /// before ever pointing this at a real feed.
     #[test]
     fn snapshot_survives_a_battery_of_adversarial_alpaca_responses() {
-        let good_quote = r#"{"quote": {"bp": 100.0, "ap": 100.5, "t": "2026-07-19T20:00:00Z"}}"#.to_string();
+        let good_quote =
+            r#"{"quote": {"bp": 100.0, "ap": 100.5, "t": "2026-07-19T20:00:00Z"}}"#.to_string();
         let bars_prefix = r#"{"bars": ["#;
 
         let cases: Vec<(&str, String, String)> = vec![
@@ -413,11 +523,18 @@ mod tests {
 
         for (name, quote_body, bars_body) in cases {
             let provider = provider_against_mock(vec![
-                ("/v2/stocks/SPY/quotes/latest", (200, "application/json", quote_body)),
+                (
+                    "/v2/stocks/SPY/quotes/latest",
+                    (200, "application/json", quote_body),
+                ),
                 ("/v2/stocks/SPY/bars", (200, "application/json", bars_body)),
             ]);
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| provider.snapshot("SPY")));
-            assert!(outcome.is_ok(), "case {name:?} PANICKED instead of returning a Result");
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| provider.snapshot("SPY")));
+            assert!(
+                outcome.is_ok(),
+                "case {name:?} PANICKED instead of returning a Result"
+            );
         }
     }
 
@@ -434,16 +551,25 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(",")
         );
-        assert!(huge_bars.len() > 2_000_000, "fixture should exceed the 2,000,000-byte cap to be a meaningful test");
+        assert!(
+            huge_bars.len() > 2_000_000,
+            "fixture should exceed the 2,000,000-byte cap to be a meaningful test"
+        );
 
         let provider = provider_against_mock(vec![
-            ("/v2/stocks/SPY/quotes/latest", (200, "application/json", r#"{"quote": {}}"#.to_string())),
+            (
+                "/v2/stocks/SPY/quotes/latest",
+                (200, "application/json", r#"{"quote": {}}"#.to_string()),
+            ),
             ("/v2/stocks/SPY/bars", (200, "application/json", huge_bars)),
         ]);
         let result = provider.snapshot("SPY");
         // Truncated mid-array is invalid JSON, so this must fail cleanly
         // (not hang, not panic, not silently succeed with a half-parsed
         // bars list).
-        assert!(matches!(result, Err(DataError::InvalidJson(_))), "expected a clean InvalidJson error, got {result:?}");
+        assert!(
+            matches!(result, Err(DataError::InvalidJson(_))),
+            "expected a clean InvalidJson error, got {result:?}"
+        );
     }
 }

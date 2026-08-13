@@ -4,7 +4,10 @@ use crate::error::StoreError;
 use crate::store::DecisionStore;
 
 fn temp_store(name: &str) -> (DecisionStore, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!("smart-hedge-store-test-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "smart-hedge-store-test-{name}-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let db_path = dir.join("decisions.sqlite3");
     let store = DecisionStore::new(&db_path).unwrap();
@@ -78,7 +81,13 @@ fn tampered_payload_is_detected_on_replay() {
 fn recent_clamps_limit_to_the_valid_range() {
     let (store, dir) = temp_store("clamp");
     for i in 0..5 {
-        store.append(&sample_payload(&format!("d{i}"), "SPY", "hold_inside_effective_band")).unwrap();
+        store
+            .append(&sample_payload(
+                &format!("d{i}"),
+                "SPY",
+                "hold_inside_effective_band",
+            ))
+            .unwrap();
     }
     assert_eq!(store.recent(0, None).unwrap().len(), 1); // clamped up to 1
     assert_eq!(store.recent(3, None).unwrap().len(), 3);
@@ -91,8 +100,12 @@ fn recent_clamps_limit_to_the_valid_range() {
 #[test]
 fn recent_filters_by_symbol_case_insensitively() {
     let (store, dir) = temp_store("symbolfilter");
-    store.append(&sample_payload("d1", "SPY", "hold_inside_effective_band")).unwrap();
-    store.append(&sample_payload("d2", "QQQ", "hold_inside_effective_band")).unwrap();
+    store
+        .append(&sample_payload("d1", "SPY", "hold_inside_effective_band"))
+        .unwrap();
+    store
+        .append(&sample_payload("d2", "QQQ", "hold_inside_effective_band"))
+        .unwrap();
 
     let spy_only = store.recent(20, Some("spy")).unwrap();
     assert_eq!(spy_only.len(), 1);
@@ -119,7 +132,9 @@ fn append_rejects_a_payload_missing_a_required_field() {
 #[test]
 fn reopening_an_existing_database_is_idempotent() {
     let (store, dir) = temp_store("reopen");
-    store.append(&sample_payload("d1", "SPY", "hold_inside_effective_band")).unwrap();
+    store
+        .append(&sample_payload("d1", "SPY", "hold_inside_effective_band"))
+        .unwrap();
     drop(store);
 
     let db_path = dir.join("decisions.sqlite3");

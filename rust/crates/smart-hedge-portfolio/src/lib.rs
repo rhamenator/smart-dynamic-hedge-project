@@ -30,7 +30,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use smart_hedge_config::LoadedConfig;
-use smart_hedge_engine::{build_provider, resolve_contract, resolved_strike, ContractOverrides};
+use smart_hedge_engine::{ContractOverrides, build_provider, resolve_contract, resolved_strike};
 use smart_hedge_models::CoreResponse;
 
 pub use smart_hedge_engine::EngineError as PortfolioError;
@@ -87,10 +87,26 @@ pub fn build_portfolio(
     for symbol in symbols {
         let snapshot = provider.snapshot(symbol)?;
         let midpoint = snapshot.quote.midpoint();
-        let contract = resolve_contract(&loaded.config, symbol, &ContractOverrides::default(), midpoint, now)?;
+        let contract = resolve_contract(
+            &loaded.config,
+            symbol,
+            &ContractOverrides::default(),
+            midpoint,
+            now,
+        )?;
         let strike = resolved_strike(&contract);
-        let core = smart_hedge_core_bridge::run_core(loaded, project_root, cpp_source, &contract, midpoint, strike)?;
-        positions.push(PortfolioPosition { symbol: symbol.clone(), core });
+        let core = smart_hedge_core_bridge::run_core(
+            loaded,
+            project_root,
+            cpp_source,
+            &contract,
+            midpoint,
+            strike,
+        )?;
+        positions.push(PortfolioPosition {
+            symbol: symbol.clone(),
+            core,
+        });
     }
     Ok(positions)
 }
@@ -102,7 +118,10 @@ pub fn build_portfolio(
 /// `CoreResponse` fixtures without needing the C++ core or a market-data
 /// provider at all.
 pub fn summarize(positions: &[PortfolioPosition]) -> PortfolioSummary {
-    let mut summary = PortfolioSummary { position_count: positions.len(), ..Default::default() };
+    let mut summary = PortfolioSummary {
+        position_count: positions.len(),
+        ..Default::default()
+    };
     for position in positions {
         let core = &position.core;
         let scale = core.inputs.contracts as f64 * core.inputs.multiplier;
@@ -122,7 +141,13 @@ mod tests {
     use super::*;
     use smart_hedge_models::{CoreGreeks, CoreHedge, CoreInputs, CorePricing, CoreRisk};
 
-    fn position(symbol: &str, spot: f64, delta_shares: f64, contracts: i64, multiplier: f64) -> PortfolioPosition {
+    fn position(
+        symbol: &str,
+        spot: f64,
+        delta_shares: f64,
+        contracts: i64,
+        multiplier: f64,
+    ) -> PortfolioPosition {
         PortfolioPosition {
             symbol: symbol.to_string(),
             core: CoreResponse {
@@ -142,7 +167,11 @@ mod tests {
                     tree_steps: 600,
                     base_no_trade_band_shares: 2.0,
                 },
-                pricing: CorePricing { model_price: 3.0, european_price: 2.9, early_exercise_premium: 0.1 },
+                pricing: CorePricing {
+                    model_price: 3.0,
+                    european_price: 2.9,
+                    early_exercise_premium: 0.1,
+                },
                 greeks: CoreGreeks {
                     delta: delta_shares / (contracts as f64 * multiplier),
                     gamma: 0.01,
@@ -158,7 +187,9 @@ mod tests {
                     action: "paper_rebalance_preview".to_string(),
                     stock_notional: delta_shares.abs() * spot,
                 },
-                risk: CoreRisk { position_gamma_pnl_for_1pct_move: 5.0 },
+                risk: CoreRisk {
+                    position_gamma_pnl_for_1pct_move: 5.0,
+                },
             },
         }
     }
@@ -166,7 +197,13 @@ mod tests {
     #[test]
     fn empty_portfolio_summarizes_to_all_zeros() {
         let summary = summarize(&[]);
-        assert_eq!(summary, PortfolioSummary { position_count: 0, ..Default::default() });
+        assert_eq!(
+            summary,
+            PortfolioSummary {
+                position_count: 0,
+                ..Default::default()
+            }
+        );
     }
 
     #[test]
@@ -194,7 +231,10 @@ mod tests {
         // SPY short 45 delta-shares at $100, QQQ long 20 delta-shares at
         // $400: dollar delta is -4500 + 8000 = 3500, even though "shares"
         // themselves are not additive across the two underlyings.
-        let positions = vec![position("SPY", 100.0, -45.0, 1, 100.0), position("QQQ", 400.0, 20.0, 1, 100.0)];
+        let positions = vec![
+            position("SPY", 100.0, -45.0, 1, 100.0),
+            position("QQQ", 400.0, 20.0, 1, 100.0),
+        ];
         let summary = summarize(&positions);
         assert_eq!(summary.position_count, 2);
         assert!((summary.dollar_delta - 3500.0).abs() < 1e-9);
@@ -202,7 +242,10 @@ mod tests {
 
     #[test]
     fn gamma_pnl_and_notional_totals_sum_across_positions() {
-        let positions = vec![position("SPY", 100.0, -45.0, 1, 100.0), position("QQQ", 400.0, 20.0, 1, 100.0)];
+        let positions = vec![
+            position("SPY", 100.0, -45.0, 1, 100.0),
+            position("QQQ", 400.0, 20.0, 1, 100.0),
+        ];
         let summary = summarize(&positions);
         assert_eq!(summary.dollar_gamma_pnl_for_1pct_move, 10.0); // 5.0 + 5.0
         assert_eq!(summary.total_stock_notional, 4500.0 + 8000.0);
@@ -211,14 +254,28 @@ mod tests {
 
     #[test]
     fn build_portfolio_rejects_an_unconfigured_symbol() {
-        let dir = std::env::temp_dir().join(format!("smart-hedge-portfolio-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("smart-hedge-portfolio-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
-        std::fs::write(&config_path, r#"{"contracts": {"SPY": {"strike": 100.0, "implied_volatility": 0.2}}}"#).unwrap();
-        let loaded =
-            smart_hedge_config::load_config(Some(&config_path), &smart_hedge_config::EnvOverrides::default(), &dir).unwrap();
+        std::fs::write(
+            &config_path,
+            r#"{"contracts": {"SPY": {"strike": 100.0, "implied_volatility": 0.2}}}"#,
+        )
+        .unwrap();
+        let loaded = smart_hedge_config::load_config(
+            Some(&config_path),
+            &smart_hedge_config::EnvOverrides::default(),
+            &dir,
+        )
+        .unwrap();
 
-        let result = build_portfolio(&loaded, &dir, &dir.join("nonexistent.cpp"), &["NOPE".to_string()]);
+        let result = build_portfolio(
+            &loaded,
+            &dir,
+            &dir.join("nonexistent.cpp"),
+            &["NOPE".to_string()],
+        );
         assert!(matches!(result, Err(PortfolioError::UnknownSymbol(_))));
         std::fs::remove_dir_all(&dir).ok();
     }

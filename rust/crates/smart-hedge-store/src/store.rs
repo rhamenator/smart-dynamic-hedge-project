@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::canonical::{canonical_json, hash_payload};
@@ -53,7 +53,10 @@ impl DecisionStore {
             )",
             [],
         )?;
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_decisions_created ON decisions(created_at DESC)", [])?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decisions_created ON decisions(created_at DESC)",
+            [],
+        )?;
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_decisions_symbol ON decisions(symbol, created_at DESC)",
             [],
@@ -98,17 +101,25 @@ impl DecisionStore {
             return Ok(None);
         };
 
-        let mut payload: Value =
-            serde_json::from_str(&payload_json).map_err(|e| StoreError::InvalidJson(e.to_string()))?;
+        let mut payload: Value = serde_json::from_str(&payload_json)
+            .map_err(|e| StoreError::InvalidJson(e.to_string()))?;
         let actual = hash_payload(&payload);
 
-        let root = payload
-            .as_object_mut()
-            .ok_or_else(|| StoreError::MalformedPayload("stored payload root is not an object".to_string()))?;
-        let audit = root.entry("audit").or_insert_with(|| Value::Object(serde_json::Map::new()));
+        let root = payload.as_object_mut().ok_or_else(|| {
+            StoreError::MalformedPayload("stored payload root is not an object".to_string())
+        })?;
+        let audit = root
+            .entry("audit")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
         if let Value::Object(audit_map) = audit {
-            audit_map.insert("stored_content_hash".to_string(), Value::String(stored_hash.clone()));
-            audit_map.insert("stored_content_hash_valid".to_string(), Value::Bool(actual == stored_hash));
+            audit_map.insert(
+                "stored_content_hash".to_string(),
+                Value::String(stored_hash.clone()),
+            );
+            audit_map.insert(
+                "stored_content_hash_valid".to_string(),
+                Value::Bool(actual == stored_hash),
+            );
         }
         Ok(Some(payload))
     }
@@ -126,9 +137,10 @@ impl DecisionStore {
             stmt.query_map(params![sym.to_uppercase(), clamped_limit], |r| r.get(0))?
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            let mut stmt =
-                conn.prepare("SELECT payload_json FROM decisions ORDER BY created_at DESC LIMIT ?1")?;
-            stmt.query_map(params![clamped_limit], |r| r.get(0))?.collect::<Result<Vec<_>, _>>()?
+            let mut stmt = conn
+                .prepare("SELECT payload_json FROM decisions ORDER BY created_at DESC LIMIT ?1")?;
+            stmt.query_map(params![clamped_limit], |r| r.get(0))?
+                .collect::<Result<Vec<_>, _>>()?
         };
 
         rows.into_iter()

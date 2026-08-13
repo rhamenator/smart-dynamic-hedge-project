@@ -1,4 +1,4 @@
-use smart_hedge_models::{civil_from_days, days_from_civil, TimestampUtc};
+use smart_hedge_models::{TimestampUtc, civil_from_days, days_from_civil};
 
 /// Port of `data._regular_market_state`. Deliberately conservative, same as
 /// Python: this catches weekends and clock hours but does not pretend to be
@@ -57,9 +57,17 @@ mod tests {
     fn nth_sunday_of_month_actually_lands_on_a_sunday() {
         for year in [2024, 2025, 2026, 2030] {
             let start_days = nth_sunday_of_month(year, 3, 2);
-            assert_eq!(weekday_sunday0(start_days), 0, "2nd Sunday of March {year} wasn't a Sunday");
+            assert_eq!(
+                weekday_sunday0(start_days),
+                0,
+                "2nd Sunday of March {year} wasn't a Sunday"
+            );
             let end_days = nth_sunday_of_month(year, 11, 1);
-            assert_eq!(weekday_sunday0(end_days), 0, "1st Sunday of November {year} wasn't a Sunday");
+            assert_eq!(
+                weekday_sunday0(end_days),
+                0,
+                "1st Sunday of November {year} wasn't a Sunday"
+            );
         }
     }
 

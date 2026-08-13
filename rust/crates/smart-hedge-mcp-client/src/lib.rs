@@ -17,7 +17,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -28,7 +28,10 @@ pub enum ClientError {
     /// method, malformed request, etc. Distinct from `Tool`, which is a
     /// tool-level failure reported through the normal `isError` result
     /// shape.
-    Protocol { code: i64, message: String },
+    Protocol {
+        code: i64,
+        message: String,
+    },
     /// The tool ran but reported failure (`isError: true`); `String` is
     /// the tool's own error text.
     Tool(String),
@@ -43,9 +46,13 @@ impl std::fmt::Display for ClientError {
             ClientError::Spawn(e) => write!(f, "failed to spawn MCP server process: {e}"),
             ClientError::Io(e) => write!(f, "I/O error talking to MCP server process: {e}"),
             ClientError::Parse(e) => write!(f, "failed to parse MCP server response as JSON: {e}"),
-            ClientError::Protocol { code, message } => write!(f, "MCP protocol error {code}: {message}"),
+            ClientError::Protocol { code, message } => {
+                write!(f, "MCP protocol error {code}: {message}")
+            }
             ClientError::Tool(message) => write!(f, "MCP tool reported failure: {message}"),
-            ClientError::UnexpectedEof => write!(f, "MCP server process closed its output before responding"),
+            ClientError::UnexpectedEof => {
+                write!(f, "MCP server process closed its output before responding")
+            }
         }
     }
 }
@@ -78,9 +85,22 @@ impl McpClient {
             .stderr(Stdio::inherit())
             .spawn()
             .map_err(ClientError::Spawn)?;
-        let stdin = child.stdin.take().expect("spawned with Stdio::piped() stdin");
-        let stdout = BufReader::new(child.stdout.take().expect("spawned with Stdio::piped() stdout"));
-        let mut client = McpClient { child, stdin, stdout, next_id: 1 };
+        let stdin = child
+            .stdin
+            .take()
+            .expect("spawned with Stdio::piped() stdin");
+        let stdout = BufReader::new(
+            child
+                .stdout
+                .take()
+                .expect("spawned with Stdio::piped() stdout"),
+        );
+        let mut client = McpClient {
+            child,
+            stdin,
+            stdout,
+            next_id: 1,
+        };
         client.call("initialize", json!({"protocolVersion": "2024-11-05"}))?;
         Ok(client)
     }
@@ -104,11 +124,16 @@ impl McpClient {
         if bytes_read == 0 {
             return Err(ClientError::UnexpectedEof);
         }
-        let response: Value = serde_json::from_str(response_line.trim()).map_err(|e| ClientError::Parse(e.to_string()))?;
+        let response: Value = serde_json::from_str(response_line.trim())
+            .map_err(|e| ClientError::Parse(e.to_string()))?;
 
         if let Some(error) = response.get("error") {
             let code = error.get("code").and_then(Value::as_i64).unwrap_or(0);
-            let message = error.get("message").and_then(Value::as_str).unwrap_or("").to_string();
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             return Err(ClientError::Protocol { code, message });
         }
         Ok(response.get("result").cloned().unwrap_or(Value::Null))
@@ -129,7 +154,10 @@ impl McpClient {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let is_error = result.get("isError").and_then(Value::as_bool).unwrap_or(false);
+        let is_error = result
+            .get("isError")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         if is_error {
             Err(ClientError::Tool(text))
         } else {
@@ -171,7 +199,11 @@ mod tests {
         let mut path = std::env::current_exe().unwrap();
         path.pop(); // deps/
         path.pop(); // debug/
-        let name = if cfg!(windows) { "smart-hedge.exe" } else { "smart-hedge" };
+        let name = if cfg!(windows) {
+            "smart-hedge.exe"
+        } else {
+            "smart-hedge"
+        };
         path.push(name);
         path
     }
@@ -179,7 +211,10 @@ mod tests {
     fn scratch_config() -> std::path::PathBuf {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("smart-hedge-mcp-client-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "smart-hedge-mcp-client-test-{}-{n}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, "{}").unwrap();

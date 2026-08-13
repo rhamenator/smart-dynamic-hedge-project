@@ -16,4 +16,4 @@ pub mod server;
 mod integration_tests;
 
 pub use routes::AppState;
-pub use server::{bind, build_state, run, serve, DashboardError};
+pub use server::{DashboardError, bind, build_state, run, serve};

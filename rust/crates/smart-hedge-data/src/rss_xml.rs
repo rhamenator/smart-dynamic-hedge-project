@@ -121,7 +121,11 @@ fn next_open_tag(xml: &str, from: usize) -> Option<OpenTag<'_>> {
             return None; // unterminated tag
         }
         let self_closing = i > name_end && bytes[i - 1] == b'/';
-        return Some(OpenTag { qualified_name, after_tag: i + 1, self_closing });
+        return Some(OpenTag {
+            qualified_name,
+            after_tag: i + 1,
+            self_closing,
+        });
     }
 }
 
@@ -138,7 +142,12 @@ fn local_name(qualified: &str) -> &str {
 /// Stops scanning (returns `None`) once past `limit` — bounds how far a
 /// single search can run, so a pathological "never found" input can't
 /// cause unbounded rescanning when called repeatedly.
-fn find_first_matching_element<'a>(xml: &'a str, candidates: &[&str], from: usize, limit: usize) -> Option<(&'a str, String, usize)> {
+fn find_first_matching_element<'a>(
+    xml: &'a str,
+    candidates: &[&str],
+    from: usize,
+    limit: usize,
+) -> Option<(&'a str, String, usize)> {
     let mut pos = from;
     while pos < limit {
         let tag = next_open_tag(xml, pos)?;
@@ -219,7 +228,9 @@ fn extract_blocks(xml: &str, block_local_name: &str, max_items: usize) -> Vec<Fe
     let mut out = Vec::new();
     let mut pos = 0;
     while out.len() < max_items {
-        let Some(tag) = next_open_tag(xml, pos) else { break };
+        let Some(tag) = next_open_tag(xml, pos) else {
+            break;
+        };
         if local_name(tag.qualified_name) != block_local_name {
             pos = tag.after_tag;
             continue;
@@ -229,23 +240,37 @@ fn extract_blocks(xml: &str, block_local_name: &str, max_items: usize) -> Vec<Fe
             continue; // an empty item/entry has no useful content
         }
         let close_needle = format!("</{}", tag.qualified_name);
-        let Some(close_rel) = xml[tag.after_tag..].find(&close_needle) else { break };
+        let Some(close_rel) = xml[tag.after_tag..].find(&close_needle) else {
+            break;
+        };
         let block_end = tag.after_tag + close_rel;
         let block = &xml[tag.after_tag..block_end];
-        let Some(close_gt_rel) = xml[block_end..].find('>') else { break };
+        let Some(close_gt_rel) = xml[block_end..].find('>') else {
+            break;
+        };
         pos = block_end + close_gt_rel + 1;
 
         let title = find_first_matching_element(block, &["title"], 0, block.len())
             .map(|(_, text, _)| text)
             .unwrap_or_default();
-        let description = find_first_matching_element(block, &["description", "summary"], 0, block.len())
-            .map(|(_, text, _)| text)
-            .unwrap_or_default();
-        let published = find_first_matching_element(block, &["pubDate", "published", "updated"], 0, block.len())
-            .map(|(_, text, _)| text)
-            .unwrap_or_default();
+        let description =
+            find_first_matching_element(block, &["description", "summary"], 0, block.len())
+                .map(|(_, text, _)| text)
+                .unwrap_or_default();
+        let published = find_first_matching_element(
+            block,
+            &["pubDate", "published", "updated"],
+            0,
+            block.len(),
+        )
+        .map(|(_, text, _)| text)
+        .unwrap_or_default();
 
-        out.push(FeedEntry { title, description, published });
+        out.push(FeedEntry {
+            title,
+            description,
+            published,
+        });
     }
     out
 }
@@ -302,7 +327,8 @@ mod tests {
 
     #[test]
     fn decodes_the_five_basic_xml_entities() {
-        let xml = r#"<item><title>A &amp; B &lt;tag&gt; &quot;q&quot; &apos;a&apos;</title></item>"#;
+        let xml =
+            r#"<item><title>A &amp; B &lt;tag&gt; &quot;q&quot; &apos;a&apos;</title></item>"#;
         let entries = extract_feed_entries(xml, 10);
         assert_eq!(entries[0].title, "A & B <tag> \"q\" 'a'");
     }
@@ -326,9 +352,20 @@ mod tests {
 
     #[test]
     fn completely_malformed_input_yields_no_entries_without_panicking() {
-        for bad in ["", "<", "<item", "not xml at all", "<item><title>unterminated", "<!DOCTYPE foo [<!ENTITY x \"y\">]><item/>"] {
+        for bad in [
+            "",
+            "<",
+            "<item",
+            "not xml at all",
+            "<item><title>unterminated",
+            "<!DOCTYPE foo [<!ENTITY x \"y\">]><item/>",
+        ] {
             let entries = extract_feed_entries(bad, 10);
-            assert!(entries.len() <= 1, "unexpected entries for {bad:?}: {}", entries.len());
+            assert!(
+                entries.len() <= 1,
+                "unexpected entries for {bad:?}: {}",
+                entries.len()
+            );
         }
     }
 
