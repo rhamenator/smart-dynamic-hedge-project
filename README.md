@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/logo.png" alt="Smart Dynamic Hedge logo" width="220">
+</p>
+
 # Smart Dynamic Hedge
 
 A paper-only, replayable dynamic-hedging research lab. It combines a deterministic
